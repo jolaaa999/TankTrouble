@@ -1,6 +1,17 @@
 node_modules
+**/node_modules
 .git
+.vercel
+.fly
 apps/client
 docs
 **/*.test.ts
 **/vitest.config.ts
+**/.DS_Store
+**/dist
+apps/client/dist
+apps/server/dist
+packages/shared/dist
+*.md
+.env
+.env.*

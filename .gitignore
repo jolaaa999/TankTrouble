@@ -6,7 +6,8 @@ dist
 .env.*
 !.env.example
 .vercel
-.fly
+.gitignore
+.fly-deploy/
 apps/client/dist
 apps/server/dist
 packages/shared/dist

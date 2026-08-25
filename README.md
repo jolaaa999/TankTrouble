@@ -30,9 +30,22 @@
 4. 你和好友都打开：`https://你的vercel域名/?ws=wss://xxxx.trycloudflare.com`
 5. 一人创建房间，一人加入（本机服 + 隧道需保持开启）
 
-### 正式方案
+### 正式方案（已部署）
 
-把 Colyseus 部署到 Fly.io，Vercel 环境变量设 `VITE_COLYSEUS_URL=wss://你的fly域名` 后重新 Deploy。
+游戏服：`wss://tanktrouble-server.fly.dev`  
+健康检查：https://tanktrouble-server.fly.dev/health
+
+你和好友直接打开：
+
+```
+https://tank-trouble-ten.vercel.app/?ws=wss://tanktrouble-server.fly.dev
+```
+
+或在 Vercel 环境变量设置后重新 Deploy（可省略 `?ws=`）：
+
+```
+VITE_COLYSEUS_URL=wss://tanktrouble-server.fly.dev
+```
 
 ## 本地开发
 
