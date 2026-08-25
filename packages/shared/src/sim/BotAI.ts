@@ -7,7 +7,7 @@ export function isBotId(id: string): boolean {
 
 export function fillWithBots(
   humanIds: string[],
-  target = GAME.maxPlayers,
+  target: number = GAME.maxPlayers,
 ): string[] {
   const ids = [...humanIds];
   let i = 0;

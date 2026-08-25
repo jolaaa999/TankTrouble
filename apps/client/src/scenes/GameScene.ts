@@ -1,9 +1,12 @@
 import Phaser from 'phaser';
 import {
+  CLASSIC_MATCH,
   GAME,
   GameSim,
+  MEGA_MATCH,
   generateMaze,
   type InputMessage,
+  type MatchMode,
   type PickupKind,
   type WeaponKind,
 } from '@tanktrouble/shared';
@@ -14,13 +17,22 @@ import { MineView, PickupView } from '../render/PickupView';
 import type { Room } from 'colyseus.js';
 
 export type GameSceneData =
-  | { mode: 'local'; withBots?: boolean; fillBots?: boolean }
+  | {
+      mode: 'local';
+      withBots?: boolean;
+      fillBots?: boolean;
+      matchMode?: MatchMode;
+      rosterSize?: number;
+    }
   | { mode: 'online'; room: Room; sessionId: string };
 
 export class GameScene extends Phaser.Scene {
   private mode: 'local' | 'online' = 'local';
   private withBots = false;
   private fillBots = false;
+  private matchMode: MatchMode = 'classic';
+  private rosterSize = 4;
+  private scoreToWin: number = GAME.scoreToWin;
   private sim: GameSim | null = null;
   private mazeView: MazeView | null = null;
   private tankViews = new Map<string, TankView>();
@@ -28,6 +40,8 @@ export class GameScene extends Phaser.Scene {
   private pickupViews = new Map<number, PickupView>();
   private mineViews = new Map<number, MineView>();
   private laserSight: Phaser.GameObjects.Graphics | null = null;
+  private beamGfx: Phaser.GameObjects.Graphics | null = null;
+  private hazardGfx: Phaser.GameObjects.Graphics | null = null;
   private offsetX = 0;
   private offsetY = 0;
   private seq = 0;
@@ -35,6 +49,8 @@ export class GameScene extends Phaser.Scene {
   private room: Room | null = null;
   private sessionId = '';
   private onlineSeed = -1;
+  private onlineCols = -1;
+  private onlineRows = -1;
   private statusText: Phaser.GameObjects.Text | null = null;
   private scoreText: Phaser.GameObjects.Text | null = null;
   private keys!: {
@@ -53,17 +69,28 @@ export class GameScene extends Phaser.Scene {
     this.fillBots =
       data.mode === 'local' &&
       (Boolean(data.withBots) || Boolean(data.fillBots));
+    this.matchMode = data.mode === 'local' ? (data.matchMode ?? 'classic') : 'classic';
+    this.rosterSize =
+      data.mode === 'local'
+        ? data.rosterSize ?? (this.matchMode === 'mega' ? 8 : 4)
+        : 4;
+    this.scoreToWin =
+      this.matchMode === 'mega' ? MEGA_MATCH.scoreToWin : CLASSIC_MATCH.scoreToWin;
     this.matchOver = false;
     this.seq = 0;
     this.room = data.mode === 'online' ? data.room : null;
     this.sessionId = data.mode === 'online' ? data.sessionId : '';
     this.onlineSeed = -1;
+    this.onlineCols = -1;
+    this.onlineRows = -1;
   }
 
   create(): void {
     this.cameras.main.setBackgroundColor(0x3e2723);
     this.mazeView = new MazeView(this);
     this.laserSight = this.add.graphics().setDepth(5);
+    this.beamGfx = this.add.graphics().setDepth(6);
+    this.hazardGfx = this.add.graphics().setDepth(4);
     this.statusText = this.add
       .text(12, 10, '', {
         fontFamily: 'Segoe UI, sans-serif',
@@ -100,19 +127,27 @@ export class GameScene extends Phaser.Scene {
 
     if (this.mode === 'local') {
       const seed = (Math.random() * 1e9) | 0;
+      const preset = this.matchMode === 'mega' ? MEGA_MATCH : CLASSIC_MATCH;
+      this.scoreToWin = preset.scoreToWin;
       this.sim = new GameSim(seed, this.withBots ? ['p1'] : ['p1', 'p2'], {
         fillBots: this.fillBots,
+        match: {
+          ...preset,
+          maxPlayers: this.rosterSize,
+          fillWithBots: this.fillBots,
+        },
       });
       this.layoutFromSim();
+      const teamHint = this.matchMode === 'mega' ? ' · 红蓝对阵 · 地图逐局变大' : '';
       this.statusText.setText(
         this.withBots
-          ? `单人+AI · WASD+空格 · AI 补齐至 ${GAME.maxPlayers} 人 · 先到 ${GAME.scoreToWin} 分`
+          ? `单人+AI · WASD · ${this.rosterSize} 人席 · 先到 ${this.scoreToWin}${teamHint}`
           : this.fillBots
-            ? `本地 · P1 WASD+空格 · P2 方向键+Enter · AI 补齐 · 先到 ${GAME.scoreToWin} 分`
-            : `本地双人 · P1 WASD+空格 · P2 方向键+Enter · 无人 AI · 先到 ${GAME.scoreToWin} 分`,
+            ? `本地 · AI 补齐至 ${this.rosterSize} · 先到 ${this.scoreToWin}${teamHint}`
+            : `本地双人 · 先到 ${this.scoreToWin}`,
       );
     } else {
-      this.statusText.setText(`联机对战 · 先到 ${GAME.scoreToWin} 分`);
+      this.statusText.setText('联机对战');
       this.bindOnline();
     }
   }
@@ -122,8 +157,10 @@ export class GameScene extends Phaser.Scene {
     const maze = this.sim.maze;
     const w = maze.cols * GAME.cellSize;
     const h = maze.rows * GAME.cellSize;
-    this.offsetX = (this.scale.width - w) / 2;
-    this.offsetY = (this.scale.height - h) / 2 + 16;
+    const zoom = Math.min(1, (this.scale.width - 24) / w, (this.scale.height - 48) / h);
+    this.cameras.main.setZoom(zoom);
+    this.offsetX = (this.scale.width / zoom - w) / 2;
+    this.offsetY = (this.scale.height / zoom - h) / 2 + 12 / zoom;
     this.mazeView?.draw(maze, this.offsetX, this.offsetY);
   }
 
@@ -134,10 +171,17 @@ export class GameScene extends Phaser.Scene {
     const syncFromState = () => {
       const state = room.state as {
         seed: number;
+        mazeCols: number;
+        mazeRows: number;
         phase: string;
         roundIndex: number;
         intermissionLeft: number;
         matchWinnerId: string;
+        matchWinnerTeam: number;
+        mode: string;
+        scoreToWin: number;
+        teamScore0: number;
+        teamScore1: number;
         scores: Map<string, number> | Record<string, number>;
         tanks: Map<
           string,
@@ -149,46 +193,82 @@ export class GameScene extends Phaser.Scene {
             alive: boolean;
             colorIndex: number;
             shieldTime: number;
+            turboTime: number;
+            freezeTime: number;
             weapon: string;
             showLaserSight: boolean;
             isBot: boolean;
           }
         >;
         bullets: Map<string, { id: number; x: number; y: number; kind: string }>;
+        beams: Map<
+          string,
+          { id: number; x1: number; y1: number; x2: number; y2: number; life: number; kind: string }
+        >;
         pickups: Map<string, { id: number; kind: PickupKind; x: number; y: number }>;
         mines: Map<
           string,
           { id: number; x: number; y: number; visible: boolean; triggered: boolean }
         >;
+        hazards: Map<string, { id: number; x: number; y: number; radius: number; timer: number }>;
       };
 
-      if (this.onlineSeed !== state.seed) {
+      this.scoreToWin = state.scoreToWin || this.scoreToWin;
+      this.matchMode = state.mode === 'mega' ? 'mega' : 'classic';
+
+      if (
+        this.onlineSeed !== state.seed ||
+        this.onlineCols !== state.mazeCols ||
+        this.onlineRows !== state.mazeRows
+      ) {
         this.onlineSeed = state.seed;
-        const maze = generateMaze(state.seed);
+        this.onlineCols = state.mazeCols || GAME.mazeCols;
+        this.onlineRows = state.mazeRows || GAME.mazeRows;
+        const maze = generateMaze(state.seed, this.onlineCols, this.onlineRows);
         const w = maze.cols * GAME.cellSize;
         const h = maze.rows * GAME.cellSize;
-        this.offsetX = (this.scale.width - w) / 2;
-        this.offsetY = (this.scale.height - h) / 2 + 16;
+        const zoom = Math.min(1, (this.scale.width - 24) / w, (this.scale.height - 48) / h);
+        this.cameras.main.setZoom(zoom);
+        this.offsetX = (this.scale.width / zoom - w) / 2;
+        this.offsetY = (this.scale.height / zoom - h) / 2 + 12 / zoom;
         this.mazeView?.draw(maze, this.offsetX, this.offsetY);
       }
 
-      this.renderScores(this.scoreMap(state.scores), state.roundIndex);
+      if (this.matchMode === 'mega') {
+        this.scoreText?.setText(
+          `第${state.roundIndex}局  红队 ${state.teamScore0}  ·  蓝队 ${state.teamScore1}  /${this.scoreToWin}`,
+        );
+      } else {
+        this.renderScores(this.scoreMap(state.scores), state.roundIndex);
+      }
+
       if (state.phase === 'intermission') {
         this.statusText?.setText('小局结束 · 下一张地图生成中…');
       }
 
       this.syncTankViews(state.tanks);
       this.syncBulletViews(state.bullets);
+      this.drawBeams(state.beams);
       this.syncPickupViews(state.pickups);
       this.syncMineViews(state.mines);
+      this.drawHazards(state.hazards);
       this.drawOnlineLaserSights(state.tanks);
 
       if (state.phase === 'matchEnd' && !this.matchOver) {
         this.matchOver = true;
-        const youWin = state.matchWinnerId === this.sessionId;
+        const msg =
+          this.matchMode === 'mega'
+            ? state.matchWinnerTeam === 0
+              ? '红队获胜！'
+              : state.matchWinnerTeam === 1
+                ? '蓝队获胜！'
+                : '本场结束'
+            : state.matchWinnerId === this.sessionId
+              ? '你赢下本场！'
+              : '本场结束';
         this.scene.start('result', {
           mode: 'online',
-          message: youWin ? '你赢下本场！' : '本场结束',
+          message: msg,
           room: this.room,
           sessionId: this.sessionId,
         });
@@ -241,31 +321,36 @@ export class GameScene extends Phaser.Scene {
 
     if (snap.seed !== prevSeed) this.layoutFromSim();
 
-    this.renderScores(snap.scores, snap.roundIndex);
+    this.renderScores(snap.scores, snap.roundIndex, snap.teamScores);
     if (snap.phase === 'intermission') {
       this.statusText?.setText(
         `得分！下一小局 ${snap.intermissionLeft.toFixed(1)}s · 地图 #${snap.roundIndex + 1}`,
       );
     } else if (snap.phase === 'playing') {
       this.statusText?.setText(
-        `第 ${snap.roundIndex} 局 · 拾取彩色方块获得原版技能 · 先到 ${GAME.scoreToWin} 分`,
+        `第 ${snap.roundIndex} 局 · L激光束/Z冰冻/W闪现/E电磁/A空袭 · 先到 ${this.scoreToWin}`,
       );
     }
 
     this.syncTankViewsFromSnap(snap.tanks);
     this.syncBulletsFromSnap(snap.bullets);
+    this.drawBeamsFromSnap(snap.beams);
     this.syncPickupsFromSnap(snap.pickups);
     this.syncMinesFromSnap(snap.mines);
+    this.drawHazardsFromSnap(snap.hazards);
     this.drawLaserSights(snap.tanks);
 
     if (events.some((e) => e.type === 'matchEnd') || snap.phase === 'matchEnd') {
       this.matchOver = true;
-      const winner =
-        snap.matchWinnerId === 'p1' ? 'P1' : snap.matchWinnerId === 'p2' ? 'P2' : '无人';
-      this.scene.start('result', {
-        mode: 'local',
-        message: `${winner} 先到 ${GAME.scoreToWin} 分获胜！`,
-      });
+      let message = '本场结束';
+      if (this.matchMode === 'mega' && snap.matchWinnerTeam !== null) {
+        message = snap.matchWinnerTeam === 0 ? '红队先到分获胜！' : '蓝队先到分获胜！';
+      } else {
+        const winner =
+          snap.matchWinnerId === 'p1' ? 'P1' : snap.matchWinnerId === 'p2' ? 'P2' : '无人';
+        message = `${winner} 先到 ${this.scoreToWin} 分获胜！`;
+      }
+      this.scene.start('result', { mode: 'local', message });
     }
   }
 
@@ -275,12 +360,22 @@ export class GameScene extends Phaser.Scene {
     this.room.send('input', { seq: this.seq, ...this.readKeys(this.keys.p1) });
   }
 
-  private renderScores(scores: Record<string, number>, roundIndex: number): void {
+  private renderScores(
+    scores: Record<string, number>,
+    roundIndex: number,
+    teamScores?: Record<number, number>,
+  ): void {
+    if (this.matchMode === 'mega' && teamScores) {
+      this.scoreText?.setText(
+        `第${roundIndex}局  红队 ${teamScores[0] ?? 0}  ·  蓝队 ${teamScores[1] ?? 0}  /${this.scoreToWin}`,
+      );
+      return;
+    }
     const parts = Object.entries(scores).map(([id, s], i) => {
       const label = this.mode === 'local' ? id.toUpperCase() : `P${i + 1}`;
       return `${label} ${s}`;
     });
-    this.scoreText?.setText(`第${roundIndex}局  ${parts.join('  ·  ')}  /${GAME.scoreToWin}`);
+    this.scoreText?.setText(`第${roundIndex}局  ${parts.join('  ·  ')}  /${this.scoreToWin}`);
   }
 
   private syncTankViewsFromSnap(
@@ -292,6 +387,8 @@ export class GameScene extends Phaser.Scene {
       alive: boolean;
       colorIndex: number;
       shieldTime: number;
+      turboTime?: number;
+      freezeTime?: number;
       weapon?: string;
       isBot?: boolean;
     }[],
@@ -311,6 +408,8 @@ export class GameScene extends Phaser.Scene {
         t.shieldTime,
         (t.weapon as WeaponKind) ?? 'default',
         Boolean(t.isBot),
+        t.turboTime ?? 0,
+        t.freezeTime ?? 0,
       );
     }
     for (const [id, view] of this.tankViews) {
@@ -332,6 +431,8 @@ export class GameScene extends Phaser.Scene {
         alive: boolean;
         colorIndex: number;
         shieldTime: number;
+        turboTime?: number;
+        freezeTime?: number;
         weapon?: string;
         isBot?: boolean;
       }
@@ -345,11 +446,78 @@ export class GameScene extends Phaser.Scene {
       alive: boolean;
       colorIndex: number;
       shieldTime: number;
+      turboTime?: number;
+      freezeTime?: number;
       weapon?: string;
       isBot?: boolean;
     }[] = [];
     tanks.forEach((t) => list.push(t));
     this.syncTankViewsFromSnap(list);
+  }
+
+  private drawBeamsFromSnap(
+    beams: { id: number; x1: number; y1: number; x2: number; y2: number; life: number; kind: string }[],
+  ): void {
+    const g = this.beamGfx;
+    if (!g) return;
+    g.clear();
+    for (const b of beams) {
+      const alpha = Math.max(0.35, Math.min(1, b.life / GAME.laserBeamLifeSec));
+      const color = b.kind === 'deathray' ? 0xd500f9 : 0xff1744;
+      const thick = b.kind === 'deathray' ? 7 : 6;
+      g.lineStyle(thick, color, alpha);
+      g.beginPath();
+      g.moveTo(this.offsetX + b.x1, this.offsetY + b.y1);
+      g.lineTo(this.offsetX + b.x2, this.offsetY + b.y2);
+      g.strokePath();
+      g.lineStyle(2, 0xffffff, alpha * 0.85);
+      g.beginPath();
+      g.moveTo(this.offsetX + b.x1, this.offsetY + b.y1);
+      g.lineTo(this.offsetX + b.x2, this.offsetY + b.y2);
+      g.strokePath();
+    }
+  }
+
+  private drawBeams(
+    beams: Map<
+      string,
+      { id: number; x1: number; y1: number; x2: number; y2: number; life: number; kind: string }
+    >,
+  ): void {
+    const list: {
+      id: number;
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+      life: number;
+      kind: string;
+    }[] = [];
+    beams.forEach((b) => list.push(b));
+    this.drawBeamsFromSnap(list);
+  }
+
+  private drawHazardsFromSnap(
+    hazards: { id: number; x: number; y: number; radius: number; timer: number }[],
+  ): void {
+    const g = this.hazardGfx;
+    if (!g) return;
+    g.clear();
+    for (const h of hazards) {
+      const pulse = 0.35 + 0.35 * Math.sin(this.timeSec * 10);
+      g.lineStyle(2, 0xff5252, 0.5 + pulse);
+      g.strokeCircle(this.offsetX + h.x, this.offsetY + h.y, h.radius);
+      g.fillStyle(0xff1744, 0.12 + pulse * 0.1);
+      g.fillCircle(this.offsetX + h.x, this.offsetY + h.y, h.radius * 0.4);
+    }
+  }
+
+  private drawHazards(
+    hazards: Map<string, { id: number; x: number; y: number; radius: number; timer: number }>,
+  ): void {
+    const list: { id: number; x: number; y: number; radius: number; timer: number }[] = [];
+    hazards.forEach((h) => list.push(h));
+    this.drawHazardsFromSnap(list);
   }
 
   private syncBulletsFromSnap(
@@ -464,7 +632,7 @@ export class GameScene extends Phaser.Scene {
     const g = this.laserSight;
     if (!g) return;
     g.clear();
-    const maze = generateMaze(this.onlineSeed);
+    const maze = generateMaze(this.onlineSeed, this.onlineCols, this.onlineRows);
     tanks.forEach((t) => {
       if (!t.alive || !t.showLaserSight) return;
       this.strokeSight(g, t.x, t.y, t.angle, t.colorIndex, maze.walls);
@@ -518,6 +686,8 @@ export class GameScene extends Phaser.Scene {
   shutdown(): void {
     this.mazeView?.destroy();
     this.laserSight?.destroy();
+    this.beamGfx?.destroy();
+    this.hazardGfx?.destroy();
     for (const v of this.tankViews.values()) v.destroy();
     for (const v of this.bulletViews.values()) v.destroy();
     for (const v of this.pickupViews.values()) v.destroy();

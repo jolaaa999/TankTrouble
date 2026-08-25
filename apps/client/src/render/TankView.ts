@@ -58,13 +58,14 @@ export class TankView {
     shieldTime = 0,
     weapon: WeaponKind = 'default',
     isBot = false,
+    turboTime = 0,
+    freezeTime = 0,
   ): void {
     this.body.setPosition(x, y);
     this.body.setRotation(angle);
-    // Counter-rotate labels so AI/weapon text stays upright
     this.badge.setRotation(-angle);
     this.aiTag.setRotation(-angle);
-    this.body.setAlpha(alive ? 1 : 0.2);
+    this.body.setAlpha(alive ? (freezeTime > 0 ? 0.65 : 1) : 0.2);
     this.aiTag.setVisible(alive && isBot);
 
     const hasShield = alive && shieldTime > 0;
@@ -85,6 +86,14 @@ export class TankView {
       this.shieldRing.strokeCircle(0, 0, GAME.tankRadius + 7);
       this.shieldRing.lineStyle(1, 0xe0f7fa, 0.5);
       this.shieldRing.strokeCircle(0, 0, GAME.tankRadius + 10);
+    }
+    if (alive && turboTime > 0) {
+      this.shieldRing.lineStyle(2, 0xff6d00, 0.85);
+      this.shieldRing.strokeCircle(0, 0, GAME.tankRadius + 5);
+    }
+    if (alive && freezeTime > 0) {
+      this.shieldRing.lineStyle(3, 0x82b1ff, 0.9);
+      this.shieldRing.strokeCircle(0, 0, GAME.tankRadius + 9);
     }
   }
 
@@ -126,8 +135,12 @@ export class TankView {
       booby: 'B',
       frag: 'F',
       deathray: 'D',
+      freeze: 'Z',
+      blink: 'W',
+      emp: 'E',
+      airstrike: 'A',
     };
-    if (weapon !== 'default') {
+    if (weapon !== 'default' && weapon !== 'turbo') {
       this.badge.setText(labels[weapon] ?? '?');
       this.badge.setVisible(true);
     } else {
@@ -137,11 +150,9 @@ export class TankView {
     switch (weapon) {
       case 'laser':
         g.fillStyle(0xb71c1c, 1);
-        g.fillRoundedRect(4, -3, 26, 6, 1);
+        g.fillRoundedRect(4, -2, 30, 4, 1);
         g.fillStyle(0xff1744, 1);
-        g.fillCircle(30, 0, 3);
-        g.lineStyle(1, 0xff8a80, 0.8);
-        g.strokeCircle(30, 0, 5);
+        g.fillRoundedRect(8, -1, 28, 2, 1);
         break;
       case 'shotgun':
         g.fillStyle(0xe65100, 1);
@@ -181,6 +192,26 @@ export class TankView {
         g.fillStyle(0xd500f9, 1);
         g.fillRoundedRect(6, -3, 26, 6, 1);
         g.fillCircle(34, 0, 4);
+        break;
+      case 'freeze':
+        g.fillStyle(0x1565c0, 1);
+        g.fillCircle(18, 0, 8);
+        g.fillStyle(0xe3f2fd, 0.9);
+        g.fillCircle(18, 0, 4);
+        break;
+      case 'blink':
+        g.fillStyle(0x76ff03, 1);
+        g.fillTriangle(8, -8, 8, 8, 28, 0);
+        break;
+      case 'emp':
+        g.fillStyle(0xffd600, 1);
+        g.fillRoundedRect(4, -6, 18, 12, 2);
+        g.lineStyle(2, 0xff6f00, 1);
+        g.strokeCircle(22, 0, 8);
+        break;
+      case 'airstrike':
+        g.fillStyle(0xff1744, 1);
+        g.fillTriangle(6, 8, 22, -10, 26, 8);
         break;
       default:
         break;

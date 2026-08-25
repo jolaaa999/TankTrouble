@@ -16,17 +16,20 @@ export type SimTank = {
   angle: number;
   alive: boolean;
   colorIndex: number;
+  team: number;
   fireCooldown: number;
   weapon: WeaponKind;
   ammo: number;
   shieldTime: number;
+  turboTime: number;
+  freezeTime: number;
   prevFire: boolean;
   /** Death ray / laser aim visible */
   showLaserSight: boolean;
   isBot: boolean;
 };
 
-export type BulletKind = 'normal' | 'laser' | 'pellet' | 'homing' | 'frag' | 'shrapnel';
+export type BulletKind = 'normal' | 'pellet' | 'homing' | 'frag' | 'shrapnel';
 
 export type SimBullet = {
   id: number;
@@ -39,6 +42,16 @@ export type SimBullet = {
   kind: BulletKind;
   life: number;
   radius: number;
+};
+
+export type SimBeam = {
+  id: number;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  life: number;
+  kind: 'laser' | 'deathray';
 };
 
 export type SimPickup = {
@@ -58,6 +71,15 @@ export type SimMine = {
   triggered: boolean;
   triggerTimer: number;
   visible: boolean;
+};
+
+export type SimHazard = {
+  id: number;
+  x: number;
+  y: number;
+  radius: number;
+  timer: number;
+  ownerId: string;
 };
 
 export type WallSegment = {
@@ -82,14 +104,20 @@ export type SimPhase = 'playing' | 'intermission' | 'matchEnd';
 
 export type SimSnapshot = {
   seed: number;
+  mazeCols: number;
+  mazeRows: number;
   tanks: SimTank[];
   bullets: SimBullet[];
+  beams: SimBeam[];
   pickups: SimPickup[];
   mines: SimMine[];
+  hazards: SimHazard[];
   scores: Record<string, number>;
+  teamScores: Record<number, number>;
   phase: SimPhase;
   roundWinnerId: string | null;
   matchWinnerId: string | null;
+  matchWinnerTeam: number | null;
   intermissionLeft: number;
   roundIndex: number;
 };
@@ -97,7 +125,7 @@ export type SimSnapshot = {
 export type SimEvent =
   | { type: 'bounce'; bulletId: number }
   | { type: 'hit'; bulletId: number; tankId: string }
-  | { type: 'roundEnd'; winnerId: string | null }
-  | { type: 'matchEnd'; winnerId: string | null }
+  | { type: 'roundEnd'; winnerId: string | null; winnerTeam?: number | null }
+  | { type: 'matchEnd'; winnerId: string | null; winnerTeam?: number | null }
   | { type: 'pickup'; tankId: string; kind: PickupKind }
   | { type: 'score'; tankId: string; score: number };

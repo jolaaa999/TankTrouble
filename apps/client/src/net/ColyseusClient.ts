@@ -57,6 +57,8 @@ function randomCode(): string {
 
 export async function createBattleRoom(opts?: {
   fillWithBots?: boolean;
+  mode?: 'classic' | 'mega';
+  rosterSize?: number;
 }): Promise<Room> {
   const endpoint = getColyseusUrl();
   const client = new Client(endpoint);
@@ -64,6 +66,8 @@ export async function createBattleRoom(opts?: {
   return client.create('battle', {
     roomCode,
     fillWithBots: opts?.fillWithBots ?? true,
+    mode: opts?.mode ?? 'classic',
+    rosterSize: opts?.rosterSize ?? 4,
   });
 }
 

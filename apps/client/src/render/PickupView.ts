@@ -11,6 +11,11 @@ const LABELS: Record<PickupKind, string> = {
   frag: 'F',
   deathray: 'D',
   shield: '+',
+  turbo: 'T',
+  freeze: 'Z',
+  blink: 'W',
+  emp: 'E',
+  airstrike: 'A',
 };
 
 const COLORS: Record<PickupKind, number> = {
@@ -23,6 +28,11 @@ const COLORS: Record<PickupKind, number> = {
   frag: 0xffea00,
   deathray: 0xd500f9,
   shield: 0x00e5ff,
+  turbo: 0xff6d00,
+  freeze: 0x82b1ff,
+  blink: 0xb2ff59,
+  emp: 0xffd740,
+  airstrike: 0xff5252,
 };
 
 export class PickupView {

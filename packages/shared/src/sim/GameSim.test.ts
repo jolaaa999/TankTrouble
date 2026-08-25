@@ -31,7 +31,7 @@ describe('collide bounce', () => {
 
 describe('GameSim', () => {
   it('kills a tank when a bullet hits', () => {
-    const sim = new GameSim(123, ['a', 'b']);
+    const sim = new GameSim(123, ['a', 'b'], { fillBots: false });
     const anySim = sim as unknown as {
       tanks: Map<
         string,
@@ -111,5 +111,78 @@ describe('GameSim', () => {
     const tanks = sim.getSnapshot().tanks;
     expect(tanks).toHaveLength(GAME.maxPlayers);
     expect(tanks.filter((t) => t.isBot)).toHaveLength(GAME.maxPlayers - 1);
+  });
+
+  it('fires laser as an instant beam, not a bullet', () => {
+    const sim = new GameSim(9, ['a', 'b'], { fillBots: false });
+    const anySim = sim as unknown as {
+      tanks: Map<
+        string,
+        {
+          x: number;
+          y: number;
+          angle: number;
+          alive: boolean;
+          weapon: string;
+          ammo: number;
+          shieldTime: number;
+          prevFire: boolean;
+        }
+      >;
+      bullets: unknown[];
+      beams: unknown[];
+      inputs: Map<string, { fire: boolean; seq: number; forward: boolean; back: boolean; left: boolean; right: boolean }>;
+    };
+    const a = anySim.tanks.get('a')!;
+    const b = anySim.tanks.get('b')!;
+    a.x = 100;
+    a.y = 100;
+    a.angle = 0;
+    a.weapon = 'laser';
+    a.ammo = 1;
+    a.prevFire = false;
+    b.x = 180;
+    b.y = 100;
+    b.shieldTime = 0;
+    anySim.inputs.set('a', {
+      seq: 1,
+      forward: false,
+      back: false,
+      left: false,
+      right: false,
+      fire: true,
+    });
+    const events = sim.step(1 / GAME.tickHz);
+    expect(anySim.bullets).toHaveLength(0);
+    expect(anySim.beams.length).toBeGreaterThan(0);
+    expect(b.alive).toBe(false);
+    expect(events.some((e) => e.type === 'hit' || e.type === 'roundEnd')).toBe(true);
+  });
+
+  it('mega team mode scores team wins and scales map', () => {
+    const sim = new GameSim(11, ['a', 'b', 'c', 'd'], {
+      fillBots: false,
+      match: {
+        mode: 'mega',
+        maxPlayers: 4,
+        scoreToWin: 10,
+        teamMode: true,
+        scalingMaps: true,
+        fillWithBots: false,
+      },
+    });
+    expect(sim.getSnapshot().mazeCols).toBe(GAME.mazeCols);
+    const anySim = sim as unknown as {
+      tanks: Map<string, { alive: boolean; team: number }>;
+      intermissionLeft: number;
+    };
+    for (const t of anySim.tanks.values()) {
+      if (t.team === 1) t.alive = false;
+    }
+    sim.step(1 / GAME.tickHz);
+    expect(sim.getSnapshot().teamScores[0]).toBe(1);
+    anySim.intermissionLeft = 0;
+    sim.step(1 / GAME.tickHz);
+    expect(sim.getSnapshot().mazeCols).toBeGreaterThan(GAME.mazeCols);
   });
 });
