@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { GAME } from '../config.js';
 import { bounceBulletOffWall, sweepCircleWalls } from './collide.js';
+import { clearanceAlong, computeBotInput } from './BotAI.js';
 import { GameSim } from './GameSim.js';
 
 describe('collide bounce', () => {
@@ -41,6 +42,61 @@ describe('collide bounce', () => {
     const wall = { x1: 100, y1: 0, x2: 100, y2: 200, kind: 'v' as const };
     const hit = sweepCircleWalls(120, 100, 160, 100, 5, [wall]);
     expect(hit).toBeNull();
+  });
+});
+
+describe('GameSim muzzle', () => {
+  it('does not spawn bullets on the far side of a wall when muzzle clips through', () => {
+    const sim = new GameSim(3, ['a', 'b'], { fillBots: false });
+    const anySim = sim as unknown as {
+      tanks: Map<string, { x: number; y: number; angle: number; alive: boolean }>;
+      maze: { walls: { x1: number; y1: number; x2: number; y2: number; kind: 'h' | 'v' }[] };
+      spawnBullet: (
+        tank: unknown,
+        kind: string,
+        speed: number,
+        radius: number,
+        life: number,
+      ) => void;
+      bullets: { x: number; y: number }[];
+    };
+    // Vertical wall at x=200; tank on the right, facing left so barrel aims through wall
+    anySim.maze.walls = [{ x1: 200, y1: 0, x2: 200, y2: 400, kind: 'v' }];
+    const tank = anySim.tanks.get('a')!;
+    tank.x = 200 + GAME.tankRadius + 1;
+    tank.y = 200;
+    tank.angle = Math.PI; // face left through wall
+    anySim.spawnBullet(tank, 'normal', GAME.bulletSpeed, GAME.bulletRadius, 8);
+    const b = anySim.bullets[anySim.bullets.length - 1]!;
+    // Must remain on the tank's side (x > wall)
+    expect(b.x).toBeGreaterThan(200);
+  });
+});
+
+describe('BotAI wall avoidance', () => {
+  it('does not drive forward into a wall directly ahead', () => {
+    const wall = { x1: 200, y1: 0, x2: 200, y2: 400, kind: 'v' as const };
+    const self = {
+      id: 'bot-0',
+      x: 200 - GAME.tankRadius - 8,
+      y: 200,
+      angle: 0, // facing the wall
+      alive: true,
+      colorIndex: 0,
+      team: 0,
+      fireCooldown: 0,
+      weapon: 'default' as const,
+      ammo: Infinity,
+      shieldTime: 0,
+      turboTime: 0,
+      freezeTime: 0,
+      prevFire: false,
+      showLaserSight: false,
+      isBot: true,
+    };
+    const input = computeBotInput(self, [], [], 1.5, [wall]);
+    expect(input.forward).toBe(false);
+    expect(clearanceAlong(self.x, self.y, self.angle, [wall], 100)).toBeLessThan(40);
   });
 });
 

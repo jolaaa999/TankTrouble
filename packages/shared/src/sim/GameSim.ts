@@ -251,7 +251,10 @@ export class GameSim {
       const foes = this.match.teamMode
         ? all.filter((t) => t.team !== tank.team)
         : all;
-      this.inputs.set(tank.id, computeBotInput(tank, foes, pickups, this.elapsed));
+      this.inputs.set(
+        tank.id,
+        computeBotInput(tank, foes, pickups, this.elapsed, this.maze.walls),
+      );
     }
   }
 
@@ -383,7 +386,13 @@ export class GameSim {
           const f = forwardFromAngle(tank.angle);
           tank.x += f.x * GAME.tankSpeed * speedMul * move * dt;
           tank.y += f.y * GAME.tankSpeed * speedMul * move * dt;
-          const resolved = resolveCircleWalls(tank.x, tank.y, GAME.tankRadius, this.maze.walls);
+          // Extra margin so the drawn barrel cannot sit past a wall
+          const resolved = resolveCircleWalls(
+            tank.x,
+            tank.y,
+            GAME.tankRadius + 6,
+            this.maze.walls,
+          );
           tank.x = resolved.x;
           tank.y = resolved.y;
         }
@@ -507,7 +516,7 @@ export class GameSim {
       while (traveled < GAME.blinkDistance) {
         const nx = x + f.x * step;
         const ny = y + f.y * step;
-        const resolved = resolveCircleWalls(nx, ny, GAME.tankRadius, this.maze.walls);
+        const resolved = resolveCircleWalls(nx, ny, GAME.tankRadius + 6, this.maze.walls);
         if (Math.hypot(resolved.x - nx, resolved.y - ny) > 0.5) break;
         x = resolved.x;
         y = resolved.y;
@@ -562,12 +571,16 @@ export class GameSim {
         const t = i / (n - 1);
         const ang = base - GAME.shotgunSpread / 2 + t * GAME.shotgunSpread;
         const f = forwardFromAngle(ang);
-        const muzzle = GAME.tankRadius + 6;
+        // Temporary face along pellet direction for safe spawn
+        const face = tank.angle;
+        tank.angle = ang;
+        const p = this.safeForwardPoint(tank, GAME.tankRadius + 6, 3.5);
+        tank.angle = face;
         this.bullets.push({
           id: this.nextBulletId++,
           ownerId: tank.id,
-          x: tank.x + f.x * muzzle,
-          y: tank.y + f.y * muzzle,
+          x: p.x,
+          y: p.y,
           vx: f.x * (GAME.bulletSpeed * 1.15),
           vy: f.y * (GAME.bulletSpeed * 1.15),
           bounces: 0,
@@ -602,15 +615,31 @@ export class GameSim {
   }
 
   private addMuzzleFx(tank: SimTank): void {
+    const p = this.safeForwardPoint(tank, GAME.tankRadius + 10, 4);
+    this.addFx('muzzle', p.x, p.y, 10, tank.colorIndex, 0.18);
+  }
+
+  /**
+   * Place a point along the tank's facing direction without crossing walls.
+   * Fixes muzzle-through-wall: bullets must spawn on the same side as the hull.
+   */
+  private safeForwardPoint(
+    tank: SimTank,
+    reach: number,
+    radius: number,
+  ): { x: number; y: number } {
     const f = forwardFromAngle(tank.angle);
-    this.addFx(
-      'muzzle',
-      tank.x + f.x * (GAME.tankRadius + 10),
-      tank.y + f.y * (GAME.tankRadius + 10),
-      10,
-      tank.colorIndex,
-      0.18,
-    );
+    const hitR = radius + GAME.wallThickness * 0.5;
+    const x0 = tank.x;
+    const y0 = tank.y;
+    const x1 = tank.x + f.x * reach;
+    const y1 = tank.y + f.y * reach;
+    const hit = sweepCircleWalls(x0, y0, x1, y1, hitR, this.maze.walls);
+    if (!hit) {
+      const resolved = resolveCircleWalls(x1, y1, hitR, this.maze.walls);
+      return { x: resolved.x, y: resolved.y };
+    }
+    return placeBulletOutsideWall(hit.wall, hit.x, hit.y, hitR, tank.x, tank.y);
   }
 
   private spawnBullet(
@@ -621,18 +650,13 @@ export class GameSim {
     maxLifeBounces: number,
   ): void {
     const f = forwardFromAngle(tank.angle);
-    const muzzle = GAME.tankRadius + radius + 2;
-    let x = tank.x + f.x * muzzle;
-    let y = tank.y + f.y * muzzle;
-    const hitR = radius + GAME.wallThickness * 0.5;
-    const resolved = resolveCircleWalls(x, y, hitR, this.maze.walls);
-    x = resolved.x;
-    y = resolved.y;
+    const reach = GAME.tankRadius + radius + 2;
+    const p = this.safeForwardPoint(tank, reach, radius);
     this.bullets.push({
       id: this.nextBulletId++,
       ownerId: tank.id,
-      x,
-      y,
+      x: p.x,
+      y: p.y,
       vx: f.x * speed,
       vy: f.y * speed,
       bounces: 0,
@@ -650,9 +674,9 @@ export class GameSim {
     pierce: boolean,
   ): void {
     const f = forwardFromAngle(tank.angle);
-    const muzzle = GAME.tankRadius + 4;
-    let x = tank.x + f.x * muzzle;
-    let y = tank.y + f.y * muzzle;
+    const muzzle = this.safeForwardPoint(tank, GAME.tankRadius + 4, 3);
+    let x = muzzle.x;
+    let y = muzzle.y;
     let vx = f.x;
     let vy = f.y;
     const step = 5;
@@ -717,14 +741,14 @@ export class GameSim {
     }
 
     pushSeg(x, y, true);
-    // Guarantee at least a short visible beam from the muzzle
     if (pushed === 0) {
+      const tip = this.safeForwardPoint(tank, GAME.tankRadius + 52, 3);
       this.beams.push({
         id: this.nextBeamId++,
-        x1: tank.x + f.x * muzzle,
-        y1: tank.y + f.y * muzzle,
-        x2: tank.x + f.x * (muzzle + 48),
-        y2: tank.y + f.y * (muzzle + 48),
+        x1: muzzle.x,
+        y1: muzzle.y,
+        x2: tip.x,
+        y2: tip.y,
         life: GAME.laserBeamLifeSec,
         kind,
       });
