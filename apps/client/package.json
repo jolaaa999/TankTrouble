@@ -1,0 +1,21 @@
+{
+  "name": "@tanktrouble/client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "echo \"no client tests yet\""
+  },
+  "dependencies": {
+    "@tanktrouble/shared": "workspace:*",
+    "colyseus.js": "^0.15.25",
+    "phaser": "^3.88.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2",
+    "vite": "^6.2.2"
+  }
+}

@@ -1,0 +1,6 @@
+node_modules
+.git
+apps/client
+docs
+**/*.test.ts
+**/vitest.config.ts

@@ -1,0 +1,14 @@
+node_modules
+dist
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+.vercel
+.fly
+apps/client/dist
+apps/server/dist
+packages/shared/dist
+coverage
+.turbo
