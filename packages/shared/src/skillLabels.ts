@@ -17,6 +17,9 @@ export const SKILL_LABELS: Record<string, string> = {
   blink: '闪现',
   emp: '电磁脉冲',
   airstrike: '空袭',
+  cannon: '重炮',
+  nova: '星爆',
+  rail: '轨道炮',
 };
 
 export function skillLabel(kind: WeaponKind | PickupKind | string): string {

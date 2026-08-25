@@ -53,6 +53,9 @@ function weaponAmmo(kind: WeaponKind): number {
     case 'blink':
     case 'emp':
     case 'airstrike':
+    case 'cannon':
+    case 'nova':
+    case 'rail':
       return 1;
     case 'shotgun':
       return GAME.shotgunAmmo;
@@ -652,6 +655,37 @@ export class GameSim {
       this.addMuzzleFx(tank);
       tank.ammo = 0;
       tank.fireCooldown = 0.2;
+      return;
+    }
+
+    if (tank.weapon === 'cannon') {
+      this.announceSkill(tank, 'cannon');
+      this.spawnBullet(tank, 'normal', GAME.cannonSpeed, GAME.cannonRadius, GAME.cannonLife);
+      this.bullets[this.bullets.length - 1]!.life = 8;
+      this.addMuzzleFx(tank);
+      this.addFx('cast', tank.x, tank.y, 34, tank.colorIndex, 0.35);
+      this.clearWeapon(tank);
+      tank.fireCooldown = 0.4;
+      return;
+    }
+
+    if (tank.weapon === 'nova') {
+      this.announceSkill(tank, 'nova');
+      this.addFx('burst', tank.x, tank.y, 52, tank.colorIndex, 0.45);
+      this.spawnTriangleShrapnel(tank.id, tank.x, tank.y, GAME.novaShrapnel, 1.05);
+      this.clearWeapon(tank);
+      tank.fireCooldown = 0.35;
+      return;
+    }
+
+    if (tank.weapon === 'rail') {
+      this.announceSkill(tank, 'rail');
+      this.spawnBullet(tank, 'normal', GAME.railSpeed, 4, 3);
+      this.bullets[this.bullets.length - 1]!.life = GAME.railLife;
+      this.addMuzzleFx(tank);
+      this.addFx('cast', tank.x, tank.y, 28, tank.colorIndex, 0.3);
+      this.clearWeapon(tank);
+      tank.fireCooldown = 0.3;
     }
   }
 
@@ -799,20 +833,31 @@ export class GameSim {
   private detonateFrag(bomb: SimBullet): void {
     this.bullets = this.bullets.filter((b) => b.id !== bomb.id);
     this.addFx('boom', bomb.x, bomb.y, 48, 0, 0.4);
-    for (let i = 0; i < GAME.fragShrapnel; i++) {
-      const ang = (i / GAME.fragShrapnel) * Math.PI * 2;
+    this.spawnTriangleShrapnel(bomb.ownerId, bomb.x, bomb.y, GAME.fragShrapnel);
+  }
+
+  /** Radial burst of small triangular shrapnel (mine / frag / nova). */
+  private spawnTriangleShrapnel(
+    ownerId: string,
+    x: number,
+    y: number,
+    count: number,
+    speedMul = 0.95,
+  ): void {
+    for (let i = 0; i < count; i++) {
+      const ang = (i / count) * Math.PI * 2 + (i % 2) * 0.07;
       const f = forwardFromAngle(ang);
       this.bullets.push({
         id: this.nextBulletId++,
-        ownerId: bomb.ownerId,
-        x: bomb.x,
-        y: bomb.y,
-        vx: f.x * GAME.bulletSpeed * 0.9,
-        vy: f.y * GAME.bulletSpeed * 0.9,
+        ownerId,
+        x,
+        y,
+        vx: f.x * GAME.bulletSpeed * speedMul,
+        vy: f.y * GAME.bulletSpeed * speedMul,
         bounces: 0,
         kind: 'shrapnel',
-        life: 0.9,
-        radius: 3,
+        life: 1.05,
+        radius: 3.5,
       });
     }
   }
@@ -958,9 +1003,16 @@ export class GameSim {
         if (mine.triggerTimer <= 0) {
           const owner = this.tanks.get(mine.ownerId);
           this.addFx('boom', mine.x, mine.y, GAME.mineBlastRadius, owner?.colorIndex ?? 0, 0.4);
+          // Owner can be killed by own mine; only other teammates are safe
           for (const tank of this.tanks.values()) {
             if (!tank.alive) continue;
-            if (owner && this.isAlly(owner, tank)) continue;
+            if (
+              owner &&
+              tank.id !== owner.id &&
+              this.isAlly(owner, tank)
+            ) {
+              continue;
+            }
             if (
               circlesOverlap(
                 mine.x,
@@ -976,6 +1028,7 @@ export class GameSim {
               events.push({ type: 'hit', bulletId: -1, tankId: tank.id });
             }
           }
+          this.spawnTriangleShrapnel(mine.ownerId, mine.x, mine.y, GAME.mineShrapnel);
           continue;
         }
         keep.push(mine);

@@ -16,6 +16,9 @@ const LABELS: Record<PickupKind, string> = {
   blink: 'W',
   emp: 'E',
   airstrike: 'A',
+  cannon: 'C',
+  nova: 'N',
+  rail: 'R',
 };
 
 const COLORS: Record<PickupKind, number> = {
@@ -33,6 +36,9 @@ const COLORS: Record<PickupKind, number> = {
   blink: 0xb2ff59,
   emp: 0xffd740,
   airstrike: 0xff5252,
+  cannon: 0x455a64,
+  nova: 0xff4081,
+  rail: 0x18ffff,
 };
 
 export class PickupView {

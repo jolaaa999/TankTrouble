@@ -147,6 +147,9 @@ export class TankView {
       blink: 'W',
       emp: 'E',
       airstrike: 'A',
+      cannon: 'C',
+      nova: 'N',
+      rail: 'R',
     };
     if (weapon !== 'default' && weapon !== 'turbo') {
       this.badge.setText(labels[weapon] ?? '?');
@@ -220,6 +223,33 @@ export class TankView {
       case 'airstrike':
         g.fillStyle(0xff1744, 1);
         g.fillTriangle(6, 8, 22, -10, 26, 8);
+        break;
+      case 'cannon':
+        g.fillStyle(0x37474f, 1);
+        g.fillRoundedRect(2, -6, 26, 12, 3);
+        g.fillStyle(0x90a4ae, 1);
+        g.fillCircle(28, 0, 6);
+        break;
+      case 'nova':
+        g.fillStyle(0xff4081, 1);
+        g.fillCircle(16, 0, 5);
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2;
+          g.fillTriangle(
+            16,
+            0,
+            16 + Math.cos(a) * 14 - Math.sin(a) * 2.5,
+            Math.sin(a) * 14 + Math.cos(a) * 2.5,
+            16 + Math.cos(a) * 14 + Math.sin(a) * 2.5,
+            Math.sin(a) * 14 - Math.cos(a) * 2.5,
+          );
+        }
+        break;
+      case 'rail':
+        g.fillStyle(0x006064, 1);
+        g.fillRoundedRect(4, -2, 32, 4, 1);
+        g.fillStyle(0x18ffff, 1);
+        g.fillRoundedRect(8, -1, 30, 2, 1);
         break;
       default:
         break;

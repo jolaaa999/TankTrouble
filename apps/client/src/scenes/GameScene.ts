@@ -230,7 +230,10 @@ export class GameScene extends Phaser.Scene {
             isBot: boolean;
           }
         >;
-        bullets: Map<string, { id: number; x: number; y: number; kind: string }>;
+        bullets: Map<
+          string,
+          { id: number; x: number; y: number; vx?: number; vy?: number; kind: string }
+        >;
         beams: Map<
           string,
           { id: number; x1: number; y1: number; x2: number; y2: number; life: number; kind: string }
@@ -785,7 +788,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private syncBulletsFromSnap(
-    bullets: { id: number; x: number; y: number; kind?: string }[],
+    bullets: { id: number; x: number; y: number; vx?: number; vy?: number; kind?: string }[],
   ): void {
     const live = new Set(bullets.map((b) => b.id));
     for (const b of bullets) {
@@ -794,7 +797,11 @@ export class GameScene extends Phaser.Scene {
         view = new BulletView(this, b.kind ?? 'normal');
         this.bulletViews.set(b.id, view);
       }
-      view.setPose(this.offsetX + b.x, this.offsetY + b.y);
+      view.setPose(
+        this.offsetX + b.x,
+        this.offsetY + b.y,
+        Math.atan2(b.vy ?? 0, b.vx ?? 1),
+      );
     }
     for (const [id, view] of this.bulletViews) {
       if (!live.has(id)) {
@@ -805,9 +812,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   private syncBulletViews(
-    bullets: Map<string, { id: number; x: number; y: number; kind: string }>,
+    bullets: Map<
+      string,
+      { id: number; x: number; y: number; vx?: number; vy?: number; kind: string }
+    >,
   ): void {
-    const list: { id: number; x: number; y: number; kind: string }[] = [];
+    const list: { id: number; x: number; y: number; vx?: number; vy?: number; kind: string }[] =
+      [];
     bullets.forEach((b) => list.push(b));
     this.syncBulletsFromSnap(list);
   }

@@ -1,4 +1,4 @@
-export const VERSION = '0.2.7';
+export const VERSION = '0.2.8';
 
 export const GAME = {
   tickHz: 30,
@@ -59,11 +59,12 @@ export const GAME = {
   gatlingBulletSpeed: 320,
   homingTurnRate: 3.2,
   homingSpeed: 220,
-  fragShrapnel: 10,
+  fragShrapnel: 14,
   mineArmDelaySec: 0.45,
   mineRadius: 10,
   mineBlastRadius: 48,
   mineCount: 3,
+  mineShrapnel: 12,
   turboDurationSec: 5,
   turboSpeedMul: 1.65,
   turboTurnMul: 1.35,
@@ -73,6 +74,12 @@ export const GAME = {
   empRadius: 130,
   airstrikeDelaySec: 1.1,
   airstrikeRadius: 72,
+  cannonSpeed: 180,
+  cannonRadius: 9,
+  cannonLife: 10,
+  novaShrapnel: 16,
+  railSpeed: 520,
+  railLife: 1.4,
 } as const;
 
 export type MatchMode = 'classic' | 'mega';
@@ -117,7 +124,10 @@ export type WeaponKind =
   | 'freeze'
   | 'blink'
   | 'emp'
-  | 'airstrike';
+  | 'airstrike'
+  | 'cannon'
+  | 'nova'
+  | 'rail';
 
 /** Pickups that appear on the map (shield/turbo apply immediately). */
 export type PickupKind = WeaponKind | 'shield';
@@ -136,6 +146,9 @@ export const PICKUP_POOL: readonly PickupKind[] = [
   'blink',
   'emp',
   'airstrike',
+  'cannon',
+  'nova',
+  'rail',
 ] as const;
 
 export function mazeSizeForRound(roundIndex: number, scaling: boolean): {
