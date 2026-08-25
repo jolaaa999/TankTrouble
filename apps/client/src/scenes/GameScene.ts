@@ -5,6 +5,7 @@ import {
   generateMaze,
   type InputMessage,
   type PickupKind,
+  type WeaponKind,
 } from '@tanktrouble/shared';
 import { MazeView } from '../render/MazeView';
 import { TankView } from '../render/TankView';
@@ -278,6 +279,7 @@ export class GameScene extends Phaser.Scene {
       alive: boolean;
       colorIndex: number;
       shieldTime: number;
+      weapon?: string;
     }[],
   ): void {
     const ids = new Set(tanks.map((t) => t.id));
@@ -293,6 +295,7 @@ export class GameScene extends Phaser.Scene {
         t.angle,
         t.alive,
         t.shieldTime,
+        (t.weapon as WeaponKind) ?? 'default',
       );
     }
     for (const [id, view] of this.tankViews) {
@@ -314,6 +317,7 @@ export class GameScene extends Phaser.Scene {
         alive: boolean;
         colorIndex: number;
         shieldTime: number;
+        weapon?: string;
       }
     >,
   ): void {
@@ -325,6 +329,7 @@ export class GameScene extends Phaser.Scene {
       alive: boolean;
       colorIndex: number;
       shieldTime: number;
+      weapon?: string;
     }[] = [];
     tanks.forEach((t) => list.push(t));
     this.syncTankViewsFromSnap(list);

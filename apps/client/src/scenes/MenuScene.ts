@@ -48,6 +48,20 @@ export class MenuScene extends Phaser.Scene {
     this.makeButton(width / 2, 400, '加入房间', () => {
       this.scene.start('lobby', { action: 'join' });
     });
+
+    this.add
+      .text(
+        width / 2,
+        470,
+        '技能：L激光 S散弹 G加特林 H追踪 B地雷 F破片 D死光 +护盾\n拾取后炮管/挂件会变样',
+        {
+          fontFamily: 'Segoe UI, sans-serif',
+          fontSize: '12px',
+          color: '#90a4ae',
+          align: 'center',
+        },
+      )
+      .setOrigin(0.5);
   }
 
   private makeButton(x: number, y: number, label: string, onClick: () => void): void {
