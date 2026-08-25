@@ -32,6 +32,7 @@ import {
   sweepCircleWalls,
 } from './collide.js';
 import { computeBotInput, fillWithBots, isBotId } from './BotAI.js';
+import { skillLabel } from '../skillLabels.js';
 
 const emptyInput = (): InputMessage => ({
   seq: 0,
@@ -296,6 +297,7 @@ export class GameSim {
     radius: number,
     colorIndex: number,
     life = 0.35,
+    label = '',
   ): void {
     this.fx.push({
       id: this.nextFxId++,
@@ -303,9 +305,23 @@ export class GameSim {
       x,
       y,
       life,
+      maxLife: life,
       radius,
       colorIndex,
+      label,
     });
+  }
+
+  private announceSkill(tank: SimTank, skillKey: string): void {
+    this.addFx(
+      'announce',
+      tank.x,
+      tank.y - GAME.tankRadius,
+      28,
+      tank.colorIndex,
+      0.9,
+      skillLabel(skillKey),
+    );
   }
 
   private tickPickups(dt: number, events: SimEvent[]): void {
@@ -326,8 +342,12 @@ export class GameSim {
       events.push({ type: 'pickup', tankId: tank.id, kind: hit.kind });
       if (hit.kind === 'shield') {
         tank.shieldTime = GAME.shieldDurationSec;
+        this.announceSkill(tank, 'shield');
+        this.addFx('shield', tank.x, tank.y, GAME.tankRadius + 18, tank.colorIndex, 0.55);
       } else if (hit.kind === 'turbo') {
         tank.turboTime = GAME.turboDurationSec;
+        this.announceSkill(tank, 'turbo');
+        this.addFx('turbo', tank.x, tank.y, GAME.tankRadius + 14, tank.colorIndex, 0.5);
       } else {
         tank.weapon = hit.kind;
         tank.ammo = weaponAmmo(hit.kind);
@@ -425,6 +445,8 @@ export class GameSim {
     if (tank.weapon === 'frag') {
       const bomb = this.bullets.find((b) => b.ownerId === tank.id && b.kind === 'frag');
       if (bomb && fireEdge) {
+        this.announceSkill(tank, 'fragDetonate');
+        this.addFx('boom', bomb.x, bomb.y, 40, tank.colorIndex, 0.45);
         this.detonateFrag(bomb);
         this.clearWeapon(tank);
         return;
@@ -433,6 +455,7 @@ export class GameSim {
 
     if (tank.weapon === 'booby') {
       if (!fireEdge || tank.ammo <= 0) return;
+      this.announceSkill(tank, 'booby');
       const back = forwardFromAngle(tank.angle + Math.PI);
       const mx = tank.x + back.x * (GAME.tankRadius + 8);
       const my = tank.y + back.y * (GAME.tankRadius + 8);
@@ -455,6 +478,7 @@ export class GameSim {
 
     if (tank.weapon === 'gatling') {
       if (!input.fire || tank.fireCooldown > 0 || tank.ammo <= 0) return;
+      if (tank.ammo === GAME.gatlingAmmo) this.announceSkill(tank, 'gatling');
       this.spawnBullet(tank, 'pellet', GAME.gatlingBulletSpeed, 3.5, 1.2);
       this.addMuzzleFx(tank);
       tank.ammo -= 1;
@@ -475,23 +499,28 @@ export class GameSim {
     }
 
     if (tank.weapon === 'laser') {
+      this.announceSkill(tank, 'laser');
       this.fireLaserBeam(tank, 'laser', GAME.laserBounces, false);
       this.addMuzzleFx(tank);
+      this.addFx('cast', tank.x, tank.y, 36, tank.colorIndex, 0.4);
       this.clearWeapon(tank);
       tank.fireCooldown = 0.25;
       return;
     }
 
     if (tank.weapon === 'deathray') {
+      this.announceSkill(tank, 'deathray');
       this.fireLaserBeam(tank, 'deathray', 10, true);
       this.addMuzzleFx(tank);
+      this.addFx('cast', tank.x, tank.y, 48, tank.colorIndex, 0.5);
       this.clearWeapon(tank);
       tank.fireCooldown = 0.4;
       return;
     }
 
     if (tank.weapon === 'freeze') {
-      this.addFx('freeze', tank.x, tank.y, GAME.freezeRadius, tank.colorIndex, 0.5);
+      this.announceSkill(tank, 'freeze');
+      this.addFx('freeze', tank.x, tank.y, GAME.freezeRadius, tank.colorIndex, 0.55);
       for (const other of this.tanks.values()) {
         if (!other.alive || this.isAlly(tank, other)) continue;
         if (
@@ -506,6 +535,7 @@ export class GameSim {
     }
 
     if (tank.weapon === 'blink') {
+      this.announceSkill(tank, 'blink');
       const fromX = tank.x;
       const fromY = tank.y;
       const f = forwardFromAngle(tank.angle);
@@ -532,7 +562,8 @@ export class GameSim {
     }
 
     if (tank.weapon === 'emp') {
-      this.addFx('emp', tank.x, tank.y, GAME.empRadius, tank.colorIndex, 0.45);
+      this.announceSkill(tank, 'emp');
+      this.addFx('emp', tank.x, tank.y, GAME.empRadius, tank.colorIndex, 0.55);
       for (const other of this.tanks.values()) {
         if (!other.alive || this.isAlly(tank, other)) continue;
         if (!circlesOverlap(tank.x, tank.y, GAME.empRadius, other.x, other.y, GAME.tankRadius)) {
@@ -549,22 +580,27 @@ export class GameSim {
     }
 
     if (tank.weapon === 'airstrike') {
+      this.announceSkill(tank, 'airstrike');
       const f = forwardFromAngle(tank.angle);
       const dist = 160;
+      const hx = tank.x + f.x * dist;
+      const hy = tank.y + f.y * dist;
       this.hazards.push({
         id: this.nextHazardId++,
-        x: tank.x + f.x * dist,
-        y: tank.y + f.y * dist,
+        x: hx,
+        y: hy,
         radius: GAME.airstrikeRadius,
         timer: GAME.airstrikeDelaySec,
         ownerId: tank.id,
       });
+      this.addFx('airstrike', hx, hy, GAME.airstrikeRadius, tank.colorIndex, 0.65);
       this.clearWeapon(tank);
       tank.fireCooldown = 0.35;
       return;
     }
 
     if (tank.weapon === 'shotgun') {
+      this.announceSkill(tank, 'shotgun');
       const base = tank.angle;
       const n = GAME.shotgunPellets;
       for (let i = 0; i < n; i++) {
@@ -593,19 +629,23 @@ export class GameSim {
       tank.fireCooldown = 0.45;
       if (tank.ammo <= 0) this.clearWeapon(tank);
       this.addMuzzleFx(tank);
+      this.addFx('burst', tank.x, tank.y, 42, tank.colorIndex, 0.35);
       return;
     }
 
     if (tank.weapon === 'homing') {
+      this.announceSkill(tank, 'homing');
       this.spawnBullet(tank, 'homing', GAME.homingSpeed, 6, 4);
       this.bullets[this.bullets.length - 1]!.life = 5;
       this.addMuzzleFx(tank);
+      this.addFx('cast', tank.x, tank.y, 30, tank.colorIndex, 0.35);
       this.clearWeapon(tank);
       tank.fireCooldown = 0.3;
       return;
     }
 
     if (tank.weapon === 'frag') {
+      this.announceSkill(tank, 'frag');
       this.spawnBullet(tank, 'frag', GAME.bulletSpeed * 0.75, 7, 6);
       this.bullets[this.bullets.length - 1]!.life = 4;
       this.addMuzzleFx(tank);
@@ -757,6 +797,7 @@ export class GameSim {
 
   private detonateFrag(bomb: SimBullet): void {
     this.bullets = this.bullets.filter((b) => b.id !== bomb.id);
+    this.addFx('boom', bomb.x, bomb.y, 48, 0, 0.4);
     for (let i = 0; i < GAME.fragShrapnel; i++) {
       const ang = (i / GAME.fragShrapnel) * Math.PI * 2;
       const f = forwardFromAngle(ang);
@@ -915,6 +956,7 @@ export class GameSim {
         mine.triggerTimer -= dt;
         if (mine.triggerTimer <= 0) {
           const owner = this.tanks.get(mine.ownerId);
+          this.addFx('boom', mine.x, mine.y, GAME.mineBlastRadius, owner?.colorIndex ?? 0, 0.4);
           for (const tank of this.tanks.values()) {
             if (!tank.alive) continue;
             if (owner && this.isAlly(owner, tank)) continue;
@@ -971,6 +1013,7 @@ export class GameSim {
         continue;
       }
       const owner = this.tanks.get(h.ownerId);
+      this.addFx('boom', h.x, h.y, h.radius, owner?.colorIndex ?? 0, 0.5);
       for (const tank of this.tanks.values()) {
         if (!tank.alive) continue;
         if (owner && this.isAlly(owner, tank)) continue;

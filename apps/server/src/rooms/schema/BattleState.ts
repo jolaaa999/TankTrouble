@@ -73,8 +73,10 @@ export class FxState extends Schema {
   @type('number') x = 0;
   @type('number') y = 0;
   @type('number') life = 0;
+  @type('number') maxLife = 0.35;
   @type('number') radius = 0;
   @type('number') colorIndex = 0;
+  @type('string') label = '';
 }
 
 export class BattleState extends Schema {

@@ -381,8 +381,10 @@ export class BattleRoom extends Room<BattleState> {
       fs.x = f.x;
       fs.y = f.y;
       fs.life = f.life;
+      fs.maxLife = f.maxLife;
       fs.radius = f.radius;
       fs.colorIndex = f.colorIndex;
+      fs.label = f.label;
     }
     for (const key of [...this.state.fx.keys()]) {
       if (!seenFx.has(key)) this.state.fx.delete(key);

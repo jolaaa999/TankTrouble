@@ -43,6 +43,7 @@ export class GameScene extends Phaser.Scene {
   private beamGfx: Phaser.GameObjects.Graphics | null = null;
   private hazardGfx: Phaser.GameObjects.Graphics | null = null;
   private fxGfx: Phaser.GameObjects.Graphics | null = null;
+  private announceTexts = new Map<number, Phaser.GameObjects.Text>();
   private offsetX = 0;
   private offsetY = 0;
   private seq = 0;
@@ -114,6 +115,7 @@ export class GameScene extends Phaser.Scene {
     this.lastScoreKey = '';
     this.tankTargets.clear();
     this.tankLerpPos.clear();
+    this.clearAnnounceTexts();
   }
 
   create(): void {
@@ -265,8 +267,10 @@ export class GameScene extends Phaser.Scene {
             x: number;
             y: number;
             life: number;
+            maxLife: number;
             radius: number;
             colorIndex: number;
+            label: string;
           }
         >;
       };
@@ -663,42 +667,172 @@ export class GameScene extends Phaser.Scene {
       x: number;
       y: number;
       life: number;
+      maxLife?: number;
       radius: number;
       colorIndex: number;
+      label?: string;
     }[],
   ): void {
     const g = this.fxGfx;
     if (!g) return;
     g.clear();
+    const announceLive = new Set<number>();
     for (const f of fx) {
-      const alpha = Math.max(0.2, Math.min(1, f.life / 0.45));
+      const maxLife = (f.maxLife ?? 0) > 0 ? f.maxLife! : 0.45;
+      const progress = 1 - Math.max(0, Math.min(1, f.life / maxLife));
+      const alpha = Math.max(0.15, Math.min(1, f.life / Math.max(0.2, maxLife * 0.55)));
       const hex = GAME.playerColors[f.colorIndex % GAME.playerColors.length]!;
       const color = Phaser.Display.Color.HexStringToColor(hex).color;
+      const cx = this.offsetX + f.x;
+      const cy = this.offsetY + f.y;
+
+      if (f.kind === 'announce') {
+        announceLive.add(f.id);
+        this.upsertAnnounceText(f.id, f.label ?? '', cx, cy, progress, color);
+        continue;
+      }
+
       if (f.kind === 'muzzle') {
         g.fillStyle(0xfff59d, alpha);
-        g.fillCircle(this.offsetX + f.x, this.offsetY + f.y, f.radius * alpha);
-        g.fillStyle(0xffffff, alpha * 0.8);
-        g.fillCircle(this.offsetX + f.x, this.offsetY + f.y, f.radius * 0.45);
+        g.fillCircle(cx, cy, f.radius * (1.1 - progress * 0.4));
+        g.fillStyle(0xffffff, alpha * 0.85);
+        g.fillCircle(cx, cy, f.radius * 0.4);
       } else if (f.kind === 'freeze') {
-        g.lineStyle(3, 0x82b1ff, alpha);
-        g.strokeCircle(this.offsetX + f.x, this.offsetY + f.y, f.radius * (1.05 - alpha * 0.2));
-        g.fillStyle(0x82b1ff, alpha * 0.12);
-        g.fillCircle(this.offsetX + f.x, this.offsetY + f.y, f.radius);
+        const r = f.radius * (0.55 + progress * 0.5);
+        g.lineStyle(4, 0x82b1ff, alpha);
+        g.strokeCircle(cx, cy, r);
+        g.lineStyle(2, 0xe3f2fd, alpha * 0.7);
+        g.strokeCircle(cx, cy, r * 0.72);
+        g.fillStyle(0x82b1ff, alpha * 0.14);
+        g.fillCircle(cx, cy, r);
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2 + progress * 2;
+          g.fillStyle(0xe3f2fd, alpha * 0.8);
+          g.fillCircle(cx + Math.cos(a) * r * 0.85, cy + Math.sin(a) * r * 0.85, 3);
+        }
       } else if (f.kind === 'emp') {
-        g.lineStyle(3, 0xffd740, alpha);
-        g.strokeCircle(this.offsetX + f.x, this.offsetY + f.y, f.radius * (1.1 - alpha * 0.25));
-        g.lineStyle(1, 0xffffff, alpha * 0.7);
-        g.strokeCircle(this.offsetX + f.x, this.offsetY + f.y, f.radius * 0.55);
+        const r = f.radius * (0.4 + progress * 0.65);
+        g.lineStyle(4, 0xffd740, alpha);
+        g.strokeCircle(cx, cy, r);
+        g.lineStyle(2, 0xffffff, alpha * 0.75);
+        g.strokeCircle(cx, cy, r * 0.55);
+        g.lineStyle(2, 0xff6f00, alpha * 0.6);
+        g.beginPath();
+        g.moveTo(cx - r * 0.7, cy);
+        g.lineTo(cx + r * 0.7, cy);
+        g.moveTo(cx, cy - r * 0.7);
+        g.lineTo(cx, cy + r * 0.7);
+        g.strokePath();
       } else if (f.kind === 'blink') {
-        g.fillStyle(color, alpha * 0.55);
-        g.fillCircle(this.offsetX + f.x, this.offsetY + f.y, f.radius);
-        g.lineStyle(2, 0xb2ff59, alpha);
-        g.strokeCircle(this.offsetX + f.x, this.offsetY + f.y, f.radius);
+        g.fillStyle(color, alpha * 0.45);
+        g.fillCircle(cx, cy, f.radius * (1.2 - progress * 0.5));
+        g.lineStyle(3, 0xb2ff59, alpha);
+        g.strokeCircle(cx, cy, f.radius * (0.8 + progress * 0.4));
+        g.fillStyle(0xffffff, alpha * 0.5);
+        g.fillCircle(cx, cy, 4);
       } else if (f.kind === 'booby') {
         g.fillStyle(0xff1744, alpha);
-        g.fillCircle(this.offsetX + f.x, this.offsetY + f.y, f.radius * 0.6);
+        g.fillCircle(cx, cy, f.radius * 0.55);
+        g.lineStyle(2, 0xfff176, alpha);
+        g.strokeCircle(cx, cy, f.radius * (0.7 + progress * 0.4));
+      } else if (f.kind === 'cast') {
+        const r = f.radius * (0.35 + progress * 0.9);
+        g.lineStyle(3, color, alpha);
+        g.strokeCircle(cx, cy, r);
+        g.fillStyle(color, alpha * 0.18);
+        g.fillCircle(cx, cy, r * 0.6);
+      } else if (f.kind === 'burst') {
+        for (let i = 0; i < 7; i++) {
+          const a = (i / 7) * Math.PI * 2 - Math.PI / 2;
+          const len = f.radius * (0.4 + progress * 0.8);
+          g.lineStyle(3, 0xff9100, alpha);
+          g.beginPath();
+          g.moveTo(cx, cy);
+          g.lineTo(cx + Math.cos(a) * len, cy + Math.sin(a) * len);
+          g.strokePath();
+        }
+        g.fillStyle(0xffe082, alpha * 0.7);
+        g.fillCircle(cx, cy, 6 + progress * 8);
+      } else if (f.kind === 'boom') {
+        const r = f.radius * (0.25 + progress * 0.95);
+        g.fillStyle(0xff6d00, alpha * 0.35);
+        g.fillCircle(cx, cy, r);
+        g.lineStyle(4, 0xff1744, alpha);
+        g.strokeCircle(cx, cy, r);
+        g.lineStyle(2, 0xffea00, alpha * 0.8);
+        g.strokeCircle(cx, cy, r * 0.55);
+      } else if (f.kind === 'shield') {
+        const r = f.radius * (0.7 + progress * 0.5);
+        g.lineStyle(3, 0x80deea, alpha);
+        g.strokeCircle(cx, cy, r);
+        g.lineStyle(1, 0xe0f7fa, alpha * 0.7);
+        g.strokeCircle(cx, cy, r * 1.15);
+      } else if (f.kind === 'turbo') {
+        const r = f.radius * (0.6 + progress * 0.5);
+        g.lineStyle(3, 0xff6d00, alpha);
+        g.strokeCircle(cx, cy, r);
+        g.fillStyle(0xffab40, alpha * 0.2);
+        g.fillCircle(cx, cy, r * 0.5);
+      } else if (f.kind === 'airstrike') {
+        const r = f.radius * (0.7 + Math.sin(progress * Math.PI) * 0.15);
+        g.lineStyle(3, 0xff5252, alpha);
+        g.strokeCircle(cx, cy, r);
+        g.lineStyle(2, 0xffea00, alpha * 0.8);
+        g.beginPath();
+        g.moveTo(cx - r * 0.6, cy);
+        g.lineTo(cx + r * 0.6, cy);
+        g.moveTo(cx, cy - r * 0.6);
+        g.lineTo(cx, cy + r * 0.6);
+        g.strokePath();
+        g.fillStyle(0xff1744, alpha * 0.15);
+        g.fillCircle(cx, cy, r * 0.35);
       }
     }
+    for (const [id, text] of this.announceTexts) {
+      if (!announceLive.has(id)) {
+        text.destroy();
+        this.announceTexts.delete(id);
+      }
+    }
+  }
+
+  private upsertAnnounceText(
+    id: number,
+    label: string,
+    x: number,
+    y: number,
+    progress: number,
+    color: number,
+  ): void {
+    let text = this.announceTexts.get(id);
+    if (!text) {
+      text = this.add
+        .text(x, y, label, {
+          fontFamily: 'Segoe UI, Microsoft YaHei, sans-serif',
+          fontSize: '22px',
+          color: '#ffffff',
+          stroke: '#1a1208',
+          strokeThickness: 6,
+          fontStyle: 'bold',
+        })
+        .setOrigin(0.5)
+        .setDepth(40);
+      this.announceTexts.set(id, text);
+    }
+    // Small → large, then fade; rise above the tank
+    const scale = 0.28 + progress * 1.35;
+    const alpha = progress < 0.65 ? 1 : Math.max(0, 1 - (progress - 0.65) / 0.35);
+    const rise = 18 + progress * 42;
+    text.setText(label);
+    text.setPosition(x, y - rise);
+    text.setScale(scale);
+    text.setAlpha(alpha);
+    text.setTint(color);
+  }
+
+  private clearAnnounceTexts(): void {
+    for (const text of this.announceTexts.values()) text.destroy();
+    this.announceTexts.clear();
   }
 
   private drawFx(
@@ -710,8 +844,10 @@ export class GameScene extends Phaser.Scene {
         x: number;
         y: number;
         life: number;
+        maxLife?: number;
         radius: number;
         colorIndex: number;
+        label?: string;
       }
     >,
   ): void {
@@ -721,8 +857,10 @@ export class GameScene extends Phaser.Scene {
       x: number;
       y: number;
       life: number;
+      maxLife?: number;
       radius: number;
       colorIndex: number;
+      label?: string;
     }[] = [];
     fx.forEach((f) => list.push(f));
     this.drawFxFromSnap(list);

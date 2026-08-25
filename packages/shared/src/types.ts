@@ -84,12 +84,28 @@ export type SimHazard = {
 
 export type SimFx = {
   id: number;
-  kind: 'freeze' | 'emp' | 'blink' | 'muzzle' | 'booby';
+  kind:
+    | 'freeze'
+    | 'emp'
+    | 'blink'
+    | 'muzzle'
+    | 'booby'
+    | 'announce'
+    | 'cast'
+    | 'burst'
+    | 'boom'
+    | 'shield'
+    | 'turbo'
+    | 'airstrike';
   x: number;
   y: number;
   life: number;
+  /** Initial life — client uses life/maxLife for animation progress. */
+  maxLife: number;
   radius: number;
   colorIndex: number;
+  /** Skill name for `announce` popups. */
+  label: string;
 };
 
 export type WallSegment = {
