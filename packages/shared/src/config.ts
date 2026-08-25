@@ -18,7 +18,9 @@ export const GAME = {
   /** Classic Tank Trouble body shades (darker tread / outline) */
   playerColorDark: ['#b71c1c', '#0d47a1', '#1b5e20', '#f9a825'] as const,
   maxPlayers: 4,
-  minPlayers: 2,
+  /** Humans needed to start; bots fill up to maxPlayers. */
+  minPlayers: 1,
+  fillWithBots: true,
   scoreToWin: 5,
   intermissionSec: 2.2,
   pickupSpawnIntervalSec: 7,

@@ -14,11 +14,13 @@ import { MineView, PickupView } from '../render/PickupView';
 import type { Room } from 'colyseus.js';
 
 export type GameSceneData =
-  | { mode: 'local' }
+  | { mode: 'local'; withBots?: boolean; fillBots?: boolean }
   | { mode: 'online'; room: Room; sessionId: string };
 
 export class GameScene extends Phaser.Scene {
   private mode: 'local' | 'online' = 'local';
+  private withBots = false;
+  private fillBots = false;
   private sim: GameSim | null = null;
   private mazeView: MazeView | null = null;
   private tankViews = new Map<string, TankView>();
@@ -47,6 +49,10 @@ export class GameScene extends Phaser.Scene {
 
   init(data: GameSceneData): void {
     this.mode = data.mode;
+    this.withBots = data.mode === 'local' && Boolean(data.withBots);
+    this.fillBots =
+      data.mode === 'local' &&
+      (Boolean(data.withBots) || Boolean(data.fillBots));
     this.matchOver = false;
     this.seq = 0;
     this.room = data.mode === 'online' ? data.room : null;
@@ -94,13 +100,19 @@ export class GameScene extends Phaser.Scene {
 
     if (this.mode === 'local') {
       const seed = (Math.random() * 1e9) | 0;
-      this.sim = new GameSim(seed, ['p1', 'p2']);
+      this.sim = new GameSim(seed, this.withBots ? ['p1'] : ['p1', 'p2'], {
+        fillBots: this.fillBots,
+      });
       this.layoutFromSim();
       this.statusText.setText(
-        '本地 · P1 WASD+空格 · P2 方向键+Enter · 先到 ' + GAME.scoreToWin + ' 分',
+        this.withBots
+          ? `单人+AI · WASD+空格 · AI 补齐至 ${GAME.maxPlayers} 人 · 先到 ${GAME.scoreToWin} 分`
+          : this.fillBots
+            ? `本地 · P1 WASD+空格 · P2 方向键+Enter · AI 补齐 · 先到 ${GAME.scoreToWin} 分`
+            : `本地双人 · P1 WASD+空格 · P2 方向键+Enter · 无人 AI · 先到 ${GAME.scoreToWin} 分`,
       );
     } else {
-      this.statusText.setText('联机对战 · 先到 ' + GAME.scoreToWin + ' 分');
+      this.statusText.setText(`联机对战 · 先到 ${GAME.scoreToWin} 分`);
       this.bindOnline();
     }
   }
@@ -139,6 +151,7 @@ export class GameScene extends Phaser.Scene {
             shieldTime: number;
             weapon: string;
             showLaserSight: boolean;
+            isBot: boolean;
           }
         >;
         bullets: Map<string, { id: number; x: number; y: number; kind: string }>;
@@ -280,6 +293,7 @@ export class GameScene extends Phaser.Scene {
       colorIndex: number;
       shieldTime: number;
       weapon?: string;
+      isBot?: boolean;
     }[],
   ): void {
     const ids = new Set(tanks.map((t) => t.id));
@@ -296,6 +310,7 @@ export class GameScene extends Phaser.Scene {
         t.alive,
         t.shieldTime,
         (t.weapon as WeaponKind) ?? 'default',
+        Boolean(t.isBot),
       );
     }
     for (const [id, view] of this.tankViews) {
@@ -318,6 +333,7 @@ export class GameScene extends Phaser.Scene {
         colorIndex: number;
         shieldTime: number;
         weapon?: string;
+        isBot?: boolean;
       }
     >,
   ): void {
@@ -330,6 +346,7 @@ export class GameScene extends Phaser.Scene {
       colorIndex: number;
       shieldTime: number;
       weapon?: string;
+      isBot?: boolean;
     }[] = [];
     tanks.forEach((t) => list.push(t));
     this.syncTankViewsFromSnap(list);

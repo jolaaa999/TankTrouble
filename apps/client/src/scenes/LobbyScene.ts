@@ -8,14 +8,17 @@ import {
 } from '../net/ColyseusClient';
 import type { Room } from 'colyseus.js';
 
-type LobbyData = { action: 'create' | 'join' };
+type LobbyData = { action: 'create' | 'join'; fillWithBots?: boolean };
 
 export class LobbyScene extends Phaser.Scene {
   private action: 'create' | 'join' = 'create';
+  private initialFillWithBots = true;
   private room: Room | null = null;
   private infoText!: Phaser.GameObjects.Text;
   private codeInput = '';
   private started = false;
+  private aiBtnBg: Phaser.GameObjects.Rectangle | null = null;
+  private aiBtnLabel: Phaser.GameObjects.Text | null = null;
 
   constructor() {
     super('lobby');
@@ -23,9 +26,12 @@ export class LobbyScene extends Phaser.Scene {
 
   init(data: LobbyData): void {
     this.action = data.action;
+    this.initialFillWithBots = data.fillWithBots ?? true;
     this.room = null;
     this.codeInput = '';
     this.started = false;
+    this.aiBtnBg = null;
+    this.aiBtnLabel = null;
   }
 
   async create(): Promise<void> {
@@ -39,7 +45,7 @@ export class LobbyScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.infoText = this.add
-      .text(width / 2, 140, '检测服务器…', {
+      .text(width / 2, 130, '检测服务器…', {
         fontFamily: 'Segoe UI, sans-serif',
         fontSize: '16px',
         color: '#c5d0dc',
@@ -71,7 +77,7 @@ export class LobbyScene extends Phaser.Scene {
     if (this.action === 'create') {
       this.infoText.setText(`${ping.detail}\n正在创建房间…`);
       try {
-        this.room = await createBattleRoom();
+        this.room = await createBattleRoom({ fillWithBots: this.initialFillWithBots });
         this.bindRoom(this.room);
       } catch (err) {
         this.infoText.setText(`创建失败：${formatNetError(err)}`);
@@ -107,17 +113,45 @@ export class LobbyScene extends Phaser.Scene {
     }
   }
 
+  private ensureAiButton(): void {
+    if (this.aiBtnBg) return;
+    const { width } = this.scale;
+    this.aiBtnBg = this.add
+      .rectangle(width / 2, 470, 280, 44, 0x2e7d32, 1)
+      .setInteractive({ useHandCursor: true })
+      .setDepth(10);
+    this.aiBtnLabel = this.add
+      .text(width / 2, 470, '', {
+        fontFamily: 'Segoe UI, sans-serif',
+        fontSize: '18px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5)
+      .setDepth(11);
+    this.aiBtnBg.on('pointerdown', () => {
+      this.room?.send('toggleFillBots');
+    });
+  }
+
   private bindRoom(room: Room): void {
+    this.ensureAiButton();
+
     const sync = () => {
       const state = room.state as {
         roomCode: string;
         phase: string;
+        fillWithBots: boolean;
         players: Map<string, { ready: boolean; colorIndex: number }>;
       };
       if (state.phase === 'playing') {
         this.goGame(room);
         return;
       }
+      const fill = Boolean(state.fillWithBots);
+      const humans = state.players.size;
+      const bots = fill ? Math.max(0, 4 - humans) : 0;
+      const minNeeded = fill ? 1 : 2;
+
       const lines: string[] = [
         `房间码：${state.roomCode}`,
         `状态：${state.phase}`,
@@ -128,8 +162,22 @@ export class LobbyScene extends Phaser.Scene {
         const you = id === room.sessionId ? '（你）' : '';
         lines.push(`P${p.colorIndex + 1}${you} ${p.ready ? '已准备' : '未准备'}`);
       });
-      lines.push('', '把房间码发给好友（需同一服务器地址）', '按 R 准备');
+      lines.push(
+        '',
+        fill
+          ? bots > 0
+            ? `AI 开：将补齐 +${bots} → 共 4 人`
+            : 'AI 开：房间已满 4 人'
+          : 'AI 关：只用人人对战',
+        humans < minNeeded
+          ? `还需至少 ${minNeeded - humans} 名真人才能开战`
+          : '人数已够，全员准备即可开战',
+        '按 R 准备 / 取消准备 · 或点下方按钮切换 AI',
+      );
       this.infoText.setText(lines.join('\n'));
+
+      this.aiBtnBg?.setFillStyle(fill ? 0x2e7d32 : 0x455a64);
+      this.aiBtnLabel?.setText(fill ? 'AI 凑满 4 人：开（点此切换）' : 'AI 凑满 4 人：关（点此切换）');
     };
 
     room.onStateChange(sync);
@@ -137,6 +185,9 @@ export class LobbyScene extends Phaser.Scene {
 
     this.input.keyboard!.on('keydown-R', () => {
       room.send('ready');
+    });
+    this.input.keyboard!.on('keydown-B', () => {
+      room.send('toggleFillBots');
     });
 
     room.onMessage('start', () => {

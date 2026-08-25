@@ -75,7 +75,7 @@ describe('GameSim', () => {
   });
 
   it('awards score and enters intermission when one tank remains', () => {
-    const sim = new GameSim(5, ['a', 'b']);
+    const sim = new GameSim(5, ['a', 'b'], { fillBots: false });
     const anySim = sim as unknown as {
       tanks: Map<string, { alive: boolean }>;
     };
@@ -90,7 +90,7 @@ describe('GameSim', () => {
   });
 
   it('uses different seeds across rounds', () => {
-    const sim = new GameSim(42, ['a', 'b']);
+    const sim = new GameSim(42, ['a', 'b'], { fillBots: false });
     const seed1 = sim.getSnapshot().seed;
     const anySim = sim as unknown as {
       tanks: Map<string, { alive: boolean }>;
@@ -104,5 +104,12 @@ describe('GameSim', () => {
     const seed2 = sim.getSnapshot().seed;
     expect(seed2).not.toBe(seed1);
     expect(sim.getSnapshot().phase).toBe('playing');
+  });
+
+  it('fills roster with bots up to maxPlayers', () => {
+    const sim = new GameSim(7, ['a'], { fillBots: true });
+    const tanks = sim.getSnapshot().tanks;
+    expect(tanks).toHaveLength(GAME.maxPlayers);
+    expect(tanks.filter((t) => t.isBot)).toHaveLength(GAME.maxPlayers - 1);
   });
 });

@@ -23,10 +23,11 @@ export class BattleRoom extends Room<BattleState> {
   private sim: GameSim | null = null;
   private inputs = new Map<string, InputMessage>();
 
-  onCreate(options: { roomCode?: string }): void {
+  onCreate(options: { roomCode?: string; fillWithBots?: boolean }): void {
     this.setState(new BattleState());
     this.state.roomCode = (options.roomCode ?? randomCode()).toUpperCase();
     this.state.phase = 'waiting';
+    this.state.fillWithBots = options.fillWithBots ?? GAME.fillWithBots;
     this.setMetadata({ roomCode: this.state.roomCode });
 
     this.onMessage('ready', (client) => {
@@ -34,6 +35,12 @@ export class BattleRoom extends Room<BattleState> {
       if (!p || this.state.phase === 'playing' || this.state.phase === 'intermission') return;
       if (this.state.phase === 'matchEnd') return;
       p.ready = !p.ready;
+      this.tryStart();
+    });
+
+    this.onMessage('toggleFillBots', () => {
+      if (this.state.phase !== 'waiting') return;
+      this.state.fillWithBots = !this.state.fillWithBots;
       this.tryStart();
     });
 
@@ -113,7 +120,8 @@ export class BattleRoom extends Room<BattleState> {
 
   private tryStart(): void {
     if (this.state.phase !== 'waiting') return;
-    if (this.state.players.size < GAME.minPlayers) return;
+    const minNeeded = this.state.fillWithBots ? GAME.minPlayers : 2;
+    if (this.state.players.size < minNeeded) return;
     for (const p of this.state.players.values()) {
       if (!p.ready) return;
     }
@@ -121,14 +129,14 @@ export class BattleRoom extends Room<BattleState> {
   }
 
   private startMatch(): void {
-    const ids = [...this.state.players.keys()];
-    for (const id of ids) {
+    const humanIds = [...this.state.players.keys()];
+    for (const id of humanIds) {
       this.state.scores.set(id, 0);
       const p = this.state.players.get(id);
       if (p) p.score = 0;
     }
     const seed = (Math.random() * 1e9) | 0;
-    this.sim = new GameSim(seed, ids);
+    this.sim = new GameSim(seed, humanIds, { fillBots: this.state.fillWithBots });
     this.state.seed = seed;
     this.state.phase = 'playing';
     this.state.winnerId = '';
@@ -178,6 +186,7 @@ export class BattleRoom extends Room<BattleState> {
       ts.weapon = t.weapon;
       ts.ammo = Number.isFinite(t.ammo) ? t.ammo : 99;
       ts.showLaserSight = t.showLaserSight;
+      ts.isBot = t.isBot;
     }
     for (const key of [...this.state.tanks.keys()]) {
       if (!seenTanks.has(key)) this.state.tanks.delete(key);

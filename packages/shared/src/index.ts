@@ -5,5 +5,6 @@ export { createRng } from './maze/rng.js';
 export { generateMaze } from './maze/generateMaze.js';
 export { shuffleWithSeed } from './maze/shuffle.js';
 export { GameSim } from './sim/GameSim.js';
+export { computeBotInput, fillWithBots, isBotId } from './sim/BotAI.js';
 export * from './sim/collide.js';
 export type * from './types.js';

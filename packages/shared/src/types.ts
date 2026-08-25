@@ -23,6 +23,7 @@ export type SimTank = {
   prevFire: boolean;
   /** Death ray / laser aim visible */
   showLaserSight: boolean;
+  isBot: boolean;
 };
 
 export type BulletKind = 'normal' | 'laser' | 'pellet' | 'homing' | 'frag' | 'shrapnel';

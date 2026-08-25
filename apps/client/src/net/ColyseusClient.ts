@@ -55,11 +55,16 @@ function randomCode(): string {
   return out;
 }
 
-export async function createBattleRoom(): Promise<Room> {
+export async function createBattleRoom(opts?: {
+  fillWithBots?: boolean;
+}): Promise<Room> {
   const endpoint = getColyseusUrl();
   const client = new Client(endpoint);
   const roomCode = randomCode();
-  return client.create('battle', { roomCode });
+  return client.create('battle', {
+    roomCode,
+    fillWithBots: opts?.fillWithBots ?? true,
+  });
 }
 
 export async function joinBattleRoom(roomCode: string): Promise<Room> {

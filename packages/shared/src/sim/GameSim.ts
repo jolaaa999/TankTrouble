@@ -19,6 +19,7 @@ import {
   forwardFromAngle,
   resolveCircleWalls,
 } from './collide.js';
+import { computeBotInput, fillWithBots, isBotId } from './BotAI.js';
 
 const emptyInput = (): InputMessage => ({
   seq: 0,
@@ -67,11 +68,17 @@ export class GameSim {
   private pickupTimer = 0;
   private roundIndex = 1;
   private rng: () => number;
+  private elapsed = 0;
 
-  constructor(seed: number, playerIds: string[]) {
-    this.playerIds = [...playerIds];
+  constructor(seed: number, playerIds: string[], opts?: { fillBots?: boolean }) {
+    const shouldFill = opts?.fillBots ?? GAME.fillWithBots;
+    const roster =
+      shouldFill && playerIds.every((id) => !isBotId(id))
+        ? fillWithBots(playerIds)
+        : [...playerIds];
+    this.playerIds = roster;
     this.rng = createRng(seed);
-    playerIds.forEach((id, i) => {
+    roster.forEach((id, i) => {
       this.colorById.set(id, i % GAME.playerColors.length);
       this.scores.set(id, 0);
       this.inputs.set(id, emptyInput());
@@ -88,6 +95,7 @@ export class GameSim {
 
   step(dt: number): SimEvent[] {
     const events: SimEvent[] = [];
+    this.elapsed += dt;
 
     if (this.phase === 'matchEnd') return events;
 
@@ -98,6 +106,8 @@ export class GameSim {
       }
       return events;
     }
+
+    this.applyBotInputs();
 
     this.tickPickups(dt, events);
     this.tickTanks(dt, events);
@@ -152,8 +162,21 @@ export class GameSim {
         shieldTime: 0,
         prevFire: false,
         showLaserSight: false,
+        isBot: isBotId(id),
       });
     });
+  }
+
+  private applyBotInputs(): void {
+    const all = [...this.tanks.values()];
+    const pickups = this.pickups.map((p) => ({ x: p.x, y: p.y }));
+    for (const tank of all) {
+      if (!tank.isBot || !tank.alive) continue;
+      this.inputs.set(
+        tank.id,
+        computeBotInput(tank, all, pickups, this.elapsed),
+      );
+    }
   }
 
   private beginNextRound(): void {

@@ -18,6 +18,7 @@ export class TankState extends Schema {
   @type('string') weapon = 'default';
   @type('number') ammo = 0;
   @type('boolean') showLaserSight = false;
+  @type('boolean') isBot = false;
 }
 
 export class BulletState extends Schema {
@@ -52,6 +53,8 @@ export class BattleState extends Schema {
   @type('string') matchWinnerId = '';
   @type('number') roundIndex = 1;
   @type('number') intermissionLeft = 0;
+  /** When true, GameSim pads humans with AI up to maxPlayers. */
+  @type('boolean') fillWithBots = true;
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
   @type({ map: TankState }) tanks = new MapSchema<TankState>();
   @type({ map: BulletState }) bullets = new MapSchema<BulletState>();
