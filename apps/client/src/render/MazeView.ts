@@ -17,7 +17,7 @@ export class MazeView {
     // Classic sandy arena
     g.fillStyle(0xe8d4a8, 1);
     g.fillRect(offsetX, offsetY, w, h);
-    g.lineStyle(1, 0xd2b48c, 0.35);
+    g.lineStyle(1, 0xcbb896, 0.4);
     for (let c = 1; c < maze.cols; c++) {
       const x = offsetX + c * GAME.cellSize;
       g.lineBetween(x, offsetY, x, offsetY + h);
@@ -27,19 +27,21 @@ export class MazeView {
       g.lineBetween(offsetX, y, offsetX + w, y);
     }
 
-    g.lineStyle(GAME.wallThickness, 0x5d4037, 1);
+    // One pass: dark outline + fill (was 3 full wall loops)
     for (const wall of maze.walls) {
+      const x1 = offsetX + wall.x1;
+      const y1 = offsetY + wall.y1;
+      const x2 = offsetX + wall.x2;
+      const y2 = offsetY + wall.y2;
+      g.lineStyle(GAME.wallThickness + 2, 0x3e2723, 1);
       g.beginPath();
-      g.moveTo(offsetX + wall.x1, offsetY + wall.y1);
-      g.lineTo(offsetX + wall.x2, offsetY + wall.y2);
+      g.moveTo(x1, y1);
+      g.lineTo(x2, y2);
       g.strokePath();
-    }
-    // softer inner highlight on walls
-    g.lineStyle(2, 0x8d6e63, 0.5);
-    for (const wall of maze.walls) {
+      g.lineStyle(GAME.wallThickness, 0x6d4c41, 1);
       g.beginPath();
-      g.moveTo(offsetX + wall.x1, offsetY + wall.y1);
-      g.lineTo(offsetX + wall.x2, offsetY + wall.y2);
+      g.moveTo(x1, y1);
+      g.lineTo(x2, y2);
       g.strokePath();
     }
   }

@@ -11,6 +11,7 @@ import {
   BattleState,
   BeamState,
   BulletState,
+  FxState,
   HazardState,
   MineState,
   PickupState,
@@ -31,6 +32,8 @@ export class BattleRoom extends Room<BattleState> {
   maxClients = GAME.megaMaxPlayers;
   private sim: GameSim | null = null;
   private inputs = new Map<string, InputMessage>();
+  /** Latches a fire press that arrived between ticks (avoids lost taps). */
+  private fireLatch = new Map<string, boolean>();
 
   onCreate(options: {
     roomCode?: string;
@@ -53,6 +56,8 @@ export class BattleRoom extends Room<BattleState> {
     this.state.rosterSize = roster;
     this.state.scoreToWin = preset.scoreToWin;
     this.setMetadata({ roomCode: this.state.roomCode, mode: this.state.mode });
+    // Sync snapshots ~30Hz (was default ~20)
+    this.setPatchRate(Math.floor(1000 / GAME.tickHz));
 
     this.onMessage('ready', (client) => {
       const p = this.state.players.get(client.sessionId);
@@ -78,6 +83,11 @@ export class BattleRoom extends Room<BattleState> {
 
     this.onMessage('input', (client, message: InputMessage) => {
       if (this.state.phase !== 'playing' && this.state.phase !== 'intermission') return;
+      const prev = this.inputs.get(client.sessionId);
+      // Rising edge between simulation ticks must not be overwritten by a later release
+      if (message.fire && !prev?.fire) {
+        this.fireLatch.set(client.sessionId, true);
+      }
       this.inputs.set(client.sessionId, message);
     });
 
@@ -101,6 +111,7 @@ export class BattleRoom extends Room<BattleState> {
       this.state.pickups.clear();
       this.state.mines.clear();
       this.state.hazards.clear();
+      this.state.fx.clear();
     });
 
     this.setSimulationInterval((deltaTime) => {
@@ -110,7 +121,9 @@ export class BattleRoom extends Room<BattleState> {
       }
       const dt = Math.min(0.05, deltaTime / 1000);
       for (const [id, input] of this.inputs) {
-        this.sim.applyInput(id, input);
+        const latched = this.fireLatch.get(id) === true;
+        this.fireLatch.delete(id);
+        this.sim.applyInput(id, { ...input, fire: input.fire || latched });
       }
       this.sim.step(dt);
       this.syncFromSim();
@@ -138,6 +151,7 @@ export class BattleRoom extends Room<BattleState> {
   async onLeave(client: Client): Promise<void> {
     this.state.players.delete(client.sessionId);
     this.inputs.delete(client.sessionId);
+    this.fireLatch.delete(client.sessionId);
     this.state.scores.delete(client.sessionId);
 
     if (
@@ -341,6 +355,27 @@ export class BattleRoom extends Room<BattleState> {
     }
     for (const key of [...this.state.hazards.keys()]) {
       if (!seenHazards.has(key)) this.state.hazards.delete(key);
+    }
+
+    const seenFx = new Set<string>();
+    for (const f of snap.fx) {
+      const key = String(f.id);
+      seenFx.add(key);
+      let fs = this.state.fx.get(key);
+      if (!fs) {
+        fs = new FxState();
+        this.state.fx.set(key, fs);
+      }
+      fs.id = f.id;
+      fs.kind = f.kind;
+      fs.x = f.x;
+      fs.y = f.y;
+      fs.life = f.life;
+      fs.radius = f.radius;
+      fs.colorIndex = f.colorIndex;
+    }
+    for (const key of [...this.state.fx.keys()]) {
+      if (!seenFx.has(key)) this.state.fx.delete(key);
     }
   }
 }

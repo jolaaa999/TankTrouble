@@ -1,7 +1,7 @@
-export const VERSION = '0.2.0';
+export const VERSION = '0.2.1';
 
 export const GAME = {
-  tickHz: 20,
+  tickHz: 30,
   mazeCols: 11,
   mazeRows: 7,
   cellSize: 64,

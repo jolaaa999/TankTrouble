@@ -86,7 +86,7 @@ export class MineView {
     }
     this.dot.setVisible(true);
     this.dot.setPosition(x, y);
-    this.dot.fillStyle(triggered ? 0xff1744 : 0x5d4037, 1);
+    this.dot.fillStyle(triggered ? 0xff1744 : 0x6d4c41, triggered ? 1 : 0.7);
     this.dot.fillTriangle(0, -GAME.mineRadius, -GAME.mineRadius, GAME.mineRadius, GAME.mineRadius, GAME.mineRadius);
   }
 

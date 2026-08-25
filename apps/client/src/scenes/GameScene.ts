@@ -42,6 +42,7 @@ export class GameScene extends Phaser.Scene {
   private laserSight: Phaser.GameObjects.Graphics | null = null;
   private beamGfx: Phaser.GameObjects.Graphics | null = null;
   private hazardGfx: Phaser.GameObjects.Graphics | null = null;
+  private fxGfx: Phaser.GameObjects.Graphics | null = null;
   private offsetX = 0;
   private offsetY = 0;
   private seq = 0;
@@ -51,6 +52,7 @@ export class GameScene extends Phaser.Scene {
   private onlineSeed = -1;
   private onlineCols = -1;
   private onlineRows = -1;
+  private onlineWalls: { x1: number; y1: number; x2: number; y2: number; kind: 'h' | 'v' }[] = [];
   private statusText: Phaser.GameObjects.Text | null = null;
   private scoreText: Phaser.GameObjects.Text | null = null;
   private keys!: {
@@ -58,6 +60,11 @@ export class GameScene extends Phaser.Scene {
     p2: Record<string, Phaser.Input.Keyboard.Key>;
   };
   private timeSec = 0;
+  private simAcc = 0;
+  private lastInputSentAt = 0;
+  private lastInputKey = '';
+  private lastScoreKey = '';
+  private readonly fixedDt = 1 / 60;
 
   constructor() {
     super('game');
@@ -83,6 +90,11 @@ export class GameScene extends Phaser.Scene {
     this.onlineSeed = -1;
     this.onlineCols = -1;
     this.onlineRows = -1;
+    this.onlineWalls = [];
+    this.simAcc = 0;
+    this.lastInputSentAt = 0;
+    this.lastInputKey = '';
+    this.lastScoreKey = '';
   }
 
   create(): void {
@@ -91,21 +103,28 @@ export class GameScene extends Phaser.Scene {
     this.laserSight = this.add.graphics().setDepth(5);
     this.beamGfx = this.add.graphics().setDepth(6);
     this.hazardGfx = this.add.graphics().setDepth(4);
+    this.fxGfx = this.add.graphics().setDepth(7);
     this.statusText = this.add
-      .text(12, 10, '', {
-        fontFamily: 'Segoe UI, sans-serif',
-        fontSize: '14px',
-        color: '#fff8e1',
-      })
-      .setDepth(20);
-    this.scoreText = this.add
-      .text(this.scale.width / 2, 10, '', {
+      .text(16, 12, '', {
         fontFamily: 'Segoe UI, sans-serif',
         fontSize: '18px',
+        color: '#fff8e1',
+        stroke: '#1a1208',
+        strokeThickness: 3,
+      })
+      .setDepth(20)
+      .setScrollFactor(0);
+    this.scoreText = this.add
+      .text(this.scale.width / 2, 12, '', {
+        fontFamily: 'Segoe UI, sans-serif',
+        fontSize: '22px',
         color: '#ffe082',
+        stroke: '#1a1208',
+        strokeThickness: 4,
       })
       .setOrigin(0.5, 0)
-      .setDepth(20);
+      .setDepth(20)
+      .setScrollFactor(0);
 
     const kb = this.input.keyboard!;
     this.keys = {
@@ -157,10 +176,12 @@ export class GameScene extends Phaser.Scene {
     const maze = this.sim.maze;
     const w = maze.cols * GAME.cellSize;
     const h = maze.rows * GAME.cellSize;
-    const zoom = Math.min(1, (this.scale.width - 24) / w, (this.scale.height - 48) / h);
+    // Prefer zoom ≥ 1 when possible; only shrink for oversized mega maps
+    const zoom = Math.min(1, (this.scale.width - 32) / w, (this.scale.height - 56) / h);
     this.cameras.main.setZoom(zoom);
+    this.cameras.main.setRoundPixels(true);
     this.offsetX = (this.scale.width / zoom - w) / 2;
-    this.offsetY = (this.scale.height / zoom - h) / 2 + 12 / zoom;
+    this.offsetY = (this.scale.height / zoom - h) / 2 + 14 / zoom;
     this.mazeView?.draw(maze, this.offsetX, this.offsetY);
   }
 
@@ -211,6 +232,18 @@ export class GameScene extends Phaser.Scene {
           { id: number; x: number; y: number; visible: boolean; triggered: boolean }
         >;
         hazards: Map<string, { id: number; x: number; y: number; radius: number; timer: number }>;
+        fx: Map<
+          string,
+          {
+            id: number;
+            kind: string;
+            x: number;
+            y: number;
+            life: number;
+            radius: number;
+            colorIndex: number;
+          }
+        >;
       };
 
       this.scoreToWin = state.scoreToWin || this.scoreToWin;
@@ -225,12 +258,14 @@ export class GameScene extends Phaser.Scene {
         this.onlineCols = state.mazeCols || GAME.mazeCols;
         this.onlineRows = state.mazeRows || GAME.mazeRows;
         const maze = generateMaze(state.seed, this.onlineCols, this.onlineRows);
+        this.onlineWalls = maze.walls;
         const w = maze.cols * GAME.cellSize;
         const h = maze.rows * GAME.cellSize;
-        const zoom = Math.min(1, (this.scale.width - 24) / w, (this.scale.height - 48) / h);
+        const zoom = Math.min(1, (this.scale.width - 32) / w, (this.scale.height - 56) / h);
         this.cameras.main.setZoom(zoom);
+        this.cameras.main.setRoundPixels(true);
         this.offsetX = (this.scale.width / zoom - w) / 2;
-        this.offsetY = (this.scale.height / zoom - h) / 2 + 12 / zoom;
+        this.offsetY = (this.scale.height / zoom - h) / 2 + 14 / zoom;
         this.mazeView?.draw(maze, this.offsetX, this.offsetY);
       }
 
@@ -252,6 +287,7 @@ export class GameScene extends Phaser.Scene {
       this.syncPickupViews(state.pickups);
       this.syncMineViews(state.mines);
       this.drawHazards(state.hazards);
+      this.drawFx(state.fx ?? new Map());
       this.drawOnlineLaserSights(state.tanks);
 
       if (state.phase === 'matchEnd' && !this.matchOver) {
@@ -294,7 +330,7 @@ export class GameScene extends Phaser.Scene {
 
   update(_t: number, dtMs: number): void {
     this.timeSec += dtMs / 1000;
-    if (this.mode === 'local') this.updateLocal(dtMs / 1000);
+    if (this.mode === 'local') this.updateLocal(Math.min(0.05, dtMs / 1000));
     else this.updateOnlineInput();
   }
 
@@ -310,14 +346,23 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
-  private updateLocal(dt: number): void {
+  private updateLocal(frameDt: number): void {
     if (!this.sim || this.matchOver) return;
-    this.seq += 1;
-    this.sim.applyInput('p1', { seq: this.seq, ...this.readKeys(this.keys.p1) });
-    this.sim.applyInput('p2', { seq: this.seq, ...this.readKeys(this.keys.p2) });
-    const prevSeed = this.sim.maze.seed;
-    const events = this.sim.step(dt);
-    const snap = this.sim.getSnapshot();
+    this.simAcc += frameDt;
+    // Cap catch-up so a hitch doesn't spiral
+    if (this.simAcc > 0.12) this.simAcc = 0.12;
+
+    let snap = this.sim.getSnapshot();
+    let prevSeed = this.sim.maze.seed;
+    while (this.simAcc >= this.fixedDt) {
+      this.seq += 1;
+      this.sim.applyInput('p1', { seq: this.seq, ...this.readKeys(this.keys.p1) });
+      this.sim.applyInput('p2', { seq: this.seq, ...this.readKeys(this.keys.p2) });
+      prevSeed = this.sim.maze.seed;
+      this.sim.step(this.fixedDt);
+      this.simAcc -= this.fixedDt;
+    }
+    snap = this.sim.getSnapshot();
 
     if (snap.seed !== prevSeed) this.layoutFromSim();
 
@@ -327,9 +372,8 @@ export class GameScene extends Phaser.Scene {
         `得分！下一小局 ${snap.intermissionLeft.toFixed(1)}s · 地图 #${snap.roundIndex + 1}`,
       );
     } else if (snap.phase === 'playing') {
-      this.statusText?.setText(
-        `第 ${snap.roundIndex} 局 · L激光束/Z冰冻/W闪现/E电磁/A空袭 · 先到 ${this.scoreToWin}`,
-      );
+      const status = `第 ${snap.roundIndex} 局 · L激光/Z冰冻/W闪现/E电磁/A空袭 · 先到 ${this.scoreToWin}`;
+      if (this.statusText?.text !== status) this.statusText?.setText(status);
     }
 
     this.syncTankViewsFromSnap(snap.tanks);
@@ -338,9 +382,10 @@ export class GameScene extends Phaser.Scene {
     this.syncPickupsFromSnap(snap.pickups);
     this.syncMinesFromSnap(snap.mines);
     this.drawHazardsFromSnap(snap.hazards);
+    this.drawFxFromSnap(snap.fx);
     this.drawLaserSights(snap.tanks);
 
-    if (events.some((e) => e.type === 'matchEnd') || snap.phase === 'matchEnd') {
+    if (snap.phase === 'matchEnd') {
       this.matchOver = true;
       let message = '本场结束';
       if (this.matchMode === 'mega' && snap.matchWinnerTeam !== null) {
@@ -356,8 +401,15 @@ export class GameScene extends Phaser.Scene {
 
   private updateOnlineInput(): void {
     if (!this.room || this.matchOver) return;
+    const keys = this.readKeys(this.keys.p1);
+    const key = `${keys.left?1:0}${keys.right?1:0}${keys.forward?1:0}${keys.back?1:0}${keys.fire?1:0}`;
+    const now = performance.now();
+    // Send on change immediately; otherwise at ~30Hz
+    if (key === this.lastInputKey && now - this.lastInputSentAt < 33) return;
+    this.lastInputKey = key;
+    this.lastInputSentAt = now;
     this.seq += 1;
-    this.room.send('input', { seq: this.seq, ...this.readKeys(this.keys.p1) });
+    this.room.send('input', { seq: this.seq, ...keys });
   }
 
   private renderScores(
@@ -365,17 +417,19 @@ export class GameScene extends Phaser.Scene {
     roundIndex: number,
     teamScores?: Record<number, number>,
   ): void {
+    let text: string;
     if (this.matchMode === 'mega' && teamScores) {
-      this.scoreText?.setText(
-        `第${roundIndex}局  红队 ${teamScores[0] ?? 0}  ·  蓝队 ${teamScores[1] ?? 0}  /${this.scoreToWin}`,
-      );
-      return;
+      text = `第${roundIndex}局  红队 ${teamScores[0] ?? 0}  ·  蓝队 ${teamScores[1] ?? 0}  /${this.scoreToWin}`;
+    } else {
+      const parts = Object.entries(scores).map(([id, s], i) => {
+        const label = this.mode === 'local' ? id.toUpperCase() : `P${i + 1}`;
+        return `${label} ${s}`;
+      });
+      text = `第${roundIndex}局  ${parts.join('  ·  ')}  /${this.scoreToWin}`;
     }
-    const parts = Object.entries(scores).map(([id, s], i) => {
-      const label = this.mode === 'local' ? id.toUpperCase() : `P${i + 1}`;
-      return `${label} ${s}`;
-    });
-    this.scoreText?.setText(`第${roundIndex}局  ${parts.join('  ·  ')}  /${this.scoreToWin}`);
+    if (text === this.lastScoreKey) return;
+    this.lastScoreKey = text;
+    this.scoreText?.setText(text);
   }
 
   private syncTankViewsFromSnap(
@@ -520,6 +574,78 @@ export class GameScene extends Phaser.Scene {
     this.drawHazardsFromSnap(list);
   }
 
+  private drawFxFromSnap(
+    fx: {
+      id: number;
+      kind: string;
+      x: number;
+      y: number;
+      life: number;
+      radius: number;
+      colorIndex: number;
+    }[],
+  ): void {
+    const g = this.fxGfx;
+    if (!g) return;
+    g.clear();
+    for (const f of fx) {
+      const alpha = Math.max(0.2, Math.min(1, f.life / 0.45));
+      const hex = GAME.playerColors[f.colorIndex % GAME.playerColors.length]!;
+      const color = Phaser.Display.Color.HexStringToColor(hex).color;
+      if (f.kind === 'muzzle') {
+        g.fillStyle(0xfff59d, alpha);
+        g.fillCircle(this.offsetX + f.x, this.offsetY + f.y, f.radius * alpha);
+        g.fillStyle(0xffffff, alpha * 0.8);
+        g.fillCircle(this.offsetX + f.x, this.offsetY + f.y, f.radius * 0.45);
+      } else if (f.kind === 'freeze') {
+        g.lineStyle(3, 0x82b1ff, alpha);
+        g.strokeCircle(this.offsetX + f.x, this.offsetY + f.y, f.radius * (1.05 - alpha * 0.2));
+        g.fillStyle(0x82b1ff, alpha * 0.12);
+        g.fillCircle(this.offsetX + f.x, this.offsetY + f.y, f.radius);
+      } else if (f.kind === 'emp') {
+        g.lineStyle(3, 0xffd740, alpha);
+        g.strokeCircle(this.offsetX + f.x, this.offsetY + f.y, f.radius * (1.1 - alpha * 0.25));
+        g.lineStyle(1, 0xffffff, alpha * 0.7);
+        g.strokeCircle(this.offsetX + f.x, this.offsetY + f.y, f.radius * 0.55);
+      } else if (f.kind === 'blink') {
+        g.fillStyle(color, alpha * 0.55);
+        g.fillCircle(this.offsetX + f.x, this.offsetY + f.y, f.radius);
+        g.lineStyle(2, 0xb2ff59, alpha);
+        g.strokeCircle(this.offsetX + f.x, this.offsetY + f.y, f.radius);
+      } else if (f.kind === 'booby') {
+        g.fillStyle(0xff1744, alpha);
+        g.fillCircle(this.offsetX + f.x, this.offsetY + f.y, f.radius * 0.6);
+      }
+    }
+  }
+
+  private drawFx(
+    fx: Map<
+      string,
+      {
+        id: number;
+        kind: string;
+        x: number;
+        y: number;
+        life: number;
+        radius: number;
+        colorIndex: number;
+      }
+    >,
+  ): void {
+    const list: {
+      id: number;
+      kind: string;
+      x: number;
+      y: number;
+      life: number;
+      radius: number;
+      colorIndex: number;
+    }[] = [];
+    fx.forEach((f) => list.push(f));
+    this.drawFxFromSnap(list);
+  }
+
   private syncBulletsFromSnap(
     bullets: { id: number; x: number; y: number; kind?: string }[],
   ): void {
@@ -610,10 +736,13 @@ export class GameScene extends Phaser.Scene {
     const g = this.laserSight;
     if (!g || !this.sim) return;
     g.clear();
+    let any = false;
     for (const t of tanks) {
       if (!t.alive || !t.showLaserSight) continue;
+      any = true;
       this.strokeSight(g, t.x, t.y, t.angle, t.colorIndex, this.sim.maze.walls);
     }
+    if (!any) return;
   }
 
   private drawOnlineLaserSights(
@@ -632,10 +761,11 @@ export class GameScene extends Phaser.Scene {
     const g = this.laserSight;
     if (!g) return;
     g.clear();
-    const maze = generateMaze(this.onlineSeed, this.onlineCols, this.onlineRows);
+    const walls = this.onlineWalls;
+    if (walls.length === 0) return;
     tanks.forEach((t) => {
       if (!t.alive || !t.showLaserSight) return;
-      this.strokeSight(g, t.x, t.y, t.angle, t.colorIndex, maze.walls);
+      this.strokeSight(g, t.x, t.y, t.angle, t.colorIndex, walls);
     });
   }
 
@@ -649,14 +779,15 @@ export class GameScene extends Phaser.Scene {
   ): void {
     const hex = GAME.playerColors[colorIndex % GAME.playerColors.length]!;
     const color = Phaser.Display.Color.HexStringToColor(hex).color;
-    g.lineStyle(2, color, 0.55);
+    g.lineStyle(2, color, 0.5);
     let cx = x;
     let cy = y;
-    let vx = Math.cos(angle) * 14;
-    let vy = Math.sin(angle) * 14;
+    let vx = Math.cos(angle) * 18;
+    let vy = Math.sin(angle) * 18;
     g.beginPath();
     g.moveTo(this.offsetX + cx, this.offsetY + cy);
-    for (let i = 0; i < 90; i++) {
+    // Fewer steps = cheaper aim laser (was 90 × walls)
+    for (let i = 0; i < 36; i++) {
       cx += vx;
       cy += vy;
       for (const wall of walls) {
@@ -669,7 +800,7 @@ export class GameScene extends Phaser.Scene {
         const py = wall.y1 + tt * dy;
         const ox = cx - px;
         const oy = cy - py;
-        if (Math.hypot(ox, oy) < 4) {
+        if (ox * ox + oy * oy < 16) {
           if (wall.kind === 'h') vy *= -1;
           else vx *= -1;
           cx += vx;
@@ -688,6 +819,7 @@ export class GameScene extends Phaser.Scene {
     this.laserSight?.destroy();
     this.beamGfx?.destroy();
     this.hazardGfx?.destroy();
+    this.fxGfx?.destroy();
     for (const v of this.tankViews.values()) v.destroy();
     for (const v of this.bulletViews.values()) v.destroy();
     for (const v of this.pickupViews.values()) v.destroy();

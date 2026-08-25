@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GAME } from '../config.js';
-import { bounceBulletOffWall } from './collide.js';
+import { bounceBulletOffWall, sweepCircleWalls } from './collide.js';
 import { GameSim } from './GameSim.js';
 
 describe('collide bounce', () => {
@@ -26,6 +26,21 @@ describe('collide bounce', () => {
     });
     expect(r.vx).toBe(10);
     expect(r.vy).toBe(-3);
+  });
+
+  it('detects tunneling through a vertical wall in one step', () => {
+    const wall = { x1: 100, y1: 0, x2: 100, y2: 200, kind: 'v' as const };
+    const hit = sweepCircleWalls(80, 100, 130, 100, 5, [wall]);
+    expect(hit).not.toBeNull();
+    expect(hit!.t).toBeGreaterThan(0);
+    expect(hit!.t).toBeLessThanOrEqual(1);
+    expect(hit!.wall).toBe(wall);
+  });
+
+  it('does not report a hit when moving away from a wall', () => {
+    const wall = { x1: 100, y1: 0, x2: 100, y2: 200, kind: 'v' as const };
+    const hit = sweepCircleWalls(120, 100, 160, 100, 5, [wall]);
+    expect(hit).toBeNull();
   });
 });
 

@@ -13,6 +13,8 @@ export class TankView {
   private lastWeapon: WeaponKind = 'default';
   private lastShield = false;
   private lastBot = false;
+  private lastTurbo = false;
+  private lastFreeze = false;
 
   constructor(scene: Phaser.Scene, colorIndex: number) {
     this.colorIndex = colorIndex;
@@ -69,31 +71,37 @@ export class TankView {
     this.aiTag.setVisible(alive && isBot);
 
     const hasShield = alive && shieldTime > 0;
-    if (
-      weapon !== this.lastWeapon ||
-      hasShield !== this.lastShield ||
-      isBot !== this.lastBot
-    ) {
+    const hasTurbo = alive && turboTime > 0;
+    const hasFreeze = alive && freezeTime > 0;
+    if (weapon !== this.lastWeapon || isBot !== this.lastBot) {
       this.lastWeapon = weapon;
-      this.lastShield = hasShield;
       this.lastBot = isBot;
       this.drawGear(weapon);
     }
 
-    this.shieldRing.clear();
-    if (hasShield) {
-      this.shieldRing.lineStyle(3, 0x80deea, 0.9);
-      this.shieldRing.strokeCircle(0, 0, GAME.tankRadius + 7);
-      this.shieldRing.lineStyle(1, 0xe0f7fa, 0.5);
-      this.shieldRing.strokeCircle(0, 0, GAME.tankRadius + 10);
-    }
-    if (alive && turboTime > 0) {
-      this.shieldRing.lineStyle(2, 0xff6d00, 0.85);
-      this.shieldRing.strokeCircle(0, 0, GAME.tankRadius + 5);
-    }
-    if (alive && freezeTime > 0) {
-      this.shieldRing.lineStyle(3, 0x82b1ff, 0.9);
-      this.shieldRing.strokeCircle(0, 0, GAME.tankRadius + 9);
+    if (
+      hasShield !== this.lastShield ||
+      hasTurbo !== this.lastTurbo ||
+      hasFreeze !== this.lastFreeze
+    ) {
+      this.lastShield = hasShield;
+      this.lastTurbo = hasTurbo;
+      this.lastFreeze = hasFreeze;
+      this.shieldRing.clear();
+      if (hasShield) {
+        this.shieldRing.lineStyle(3, 0x80deea, 0.9);
+        this.shieldRing.strokeCircle(0, 0, GAME.tankRadius + 7);
+        this.shieldRing.lineStyle(1, 0xe0f7fa, 0.5);
+        this.shieldRing.strokeCircle(0, 0, GAME.tankRadius + 10);
+      }
+      if (hasTurbo) {
+        this.shieldRing.lineStyle(2, 0xff6d00, 0.85);
+        this.shieldRing.strokeCircle(0, 0, GAME.tankRadius + 5);
+      }
+      if (hasFreeze) {
+        this.shieldRing.lineStyle(3, 0x82b1ff, 0.9);
+        this.shieldRing.strokeCircle(0, 0, GAME.tankRadius + 9);
+      }
     }
   }
 

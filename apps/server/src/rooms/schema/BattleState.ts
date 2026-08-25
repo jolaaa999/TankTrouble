@@ -67,6 +67,16 @@ export class HazardState extends Schema {
   @type('number') timer = 0;
 }
 
+export class FxState extends Schema {
+  @type('number') id = 0;
+  @type('string') kind = 'muzzle';
+  @type('number') x = 0;
+  @type('number') y = 0;
+  @type('number') life = 0;
+  @type('number') radius = 0;
+  @type('number') colorIndex = 0;
+}
+
 export class BattleState extends Schema {
   @type('string') roomCode = '';
   @type('number') seed = 0;
@@ -92,5 +102,6 @@ export class BattleState extends Schema {
   @type({ map: PickupState }) pickups = new MapSchema<PickupState>();
   @type({ map: MineState }) mines = new MapSchema<MineState>();
   @type({ map: HazardState }) hazards = new MapSchema<HazardState>();
+  @type({ map: FxState }) fx = new MapSchema<FxState>();
   @type({ map: 'number' }) scores = new MapSchema<number>();
 }

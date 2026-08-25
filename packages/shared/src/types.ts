@@ -82,6 +82,16 @@ export type SimHazard = {
   ownerId: string;
 };
 
+export type SimFx = {
+  id: number;
+  kind: 'freeze' | 'emp' | 'blink' | 'muzzle' | 'booby';
+  x: number;
+  y: number;
+  life: number;
+  radius: number;
+  colorIndex: number;
+};
+
 export type WallSegment = {
   x1: number;
   y1: number;
@@ -112,6 +122,7 @@ export type SimSnapshot = {
   pickups: SimPickup[];
   mines: SimMine[];
   hazards: SimHazard[];
+  fx: SimFx[];
   scores: Record<string, number>;
   teamScores: Record<number, number>;
   phase: SimPhase;
