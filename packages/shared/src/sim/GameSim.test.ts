@@ -73,6 +73,94 @@ describe('GameSim muzzle', () => {
   });
 });
 
+describe('GameSim self damage', () => {
+  it('allows own bounced bullets to kill the shooter', () => {
+    const sim = new GameSim(9, ['a', 'b'], { fillBots: false });
+    const anySim = sim as unknown as {
+      tanks: Map<
+        string,
+        { x: number; y: number; alive: boolean; shieldTime: number }
+      >;
+      bullets: {
+        id: number;
+        ownerId: string;
+        x: number;
+        y: number;
+        vx: number;
+        vy: number;
+        bounces: number;
+        kind: string;
+        life: number;
+        radius: number;
+      }[];
+    };
+    const a = anySim.tanks.get('a')!;
+    a.x = 120;
+    a.y = 120;
+    a.shieldTime = 0;
+    anySim.bullets.push({
+      id: 77,
+      ownerId: 'a',
+      x: 120,
+      y: 120,
+      vx: 0,
+      vy: 0,
+      bounces: 1, // already bounced
+      kind: 'normal',
+      life: 10,
+      radius: GAME.bulletRadius,
+    });
+    const events = sim.step(1 / GAME.tickHz);
+    expect(events.some((e) => e.type === 'hit' && e.tankId === 'a')).toBe(true);
+    expect(a.alive).toBe(false);
+  });
+
+  it('does not kill shooter with unbounced own bullet still at muzzle', () => {
+    const sim = new GameSim(11, ['a', 'b'], { fillBots: false });
+    const anySim = sim as unknown as {
+      tanks: Map<string, { x: number; y: number; alive: boolean; shieldTime: number }>;
+      maze: { walls: unknown[] };
+      bullets: {
+        id: number;
+        ownerId: string;
+        x: number;
+        y: number;
+        vx: number;
+        vy: number;
+        bounces: number;
+        kind: string;
+        life: number;
+        radius: number;
+      }[];
+      mines: unknown[];
+      hazards: unknown[];
+    };
+    // Empty arena so the only interaction is owner vs unbounced bullet
+    anySim.maze.walls = [];
+    anySim.mines = [];
+    anySim.hazards = [];
+    const a = anySim.tanks.get('a')!;
+    a.x = 200;
+    a.y = 200;
+    a.shieldTime = 0;
+    anySim.bullets.push({
+      id: 78,
+      ownerId: 'a',
+      x: 200,
+      y: 200,
+      vx: 0,
+      vy: 0,
+      bounces: 0,
+      kind: 'normal',
+      life: 10,
+      radius: GAME.bulletRadius,
+    });
+    const events = sim.step(1 / GAME.tickHz);
+    expect(events.some((e) => e.type === 'hit' && e.tankId === 'a')).toBe(false);
+    expect(a.alive).toBe(true);
+  });
+});
+
 describe('BotAI wall avoidance', () => {
   it('does not drive forward into a wall directly ahead', () => {
     const wall = { x1: 200, y1: 0, x2: 200, y2: 400, kind: 'v' as const };

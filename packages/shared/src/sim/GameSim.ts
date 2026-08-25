@@ -856,12 +856,16 @@ export class GameSim {
         const owner = this.tanks.get(bullet.ownerId);
         for (const tank of this.tanks.values()) {
           if (!tank.alive) continue;
-          if (owner && this.isAlly(owner, tank) && bullet.kind !== 'shrapnel') continue;
-          if (
-            tank.id === bullet.ownerId &&
-            bullet.bounces === 0 &&
+          // Classic Tank Trouble: own shots are safe until they bounce once
+          if (tank.id === bullet.ownerId) {
+            if (bullet.bounces === 0 && bullet.kind !== 'shrapnel') continue;
+          } else if (
+            owner &&
+            this.match.teamMode &&
+            owner.team === tank.team &&
             bullet.kind !== 'shrapnel'
           ) {
+            // Teammates (not self) stay friendly in mega mode
             continue;
           }
           if (
