@@ -1040,6 +1040,7 @@ export class GameScene extends Phaser.Scene {
     this.beamGfx?.destroy();
     this.hazardGfx?.destroy();
     this.fxGfx?.destroy();
+    this.clearAnnounceTexts();
     for (const v of this.tankViews.values()) v.destroy();
     for (const v of this.bulletViews.values()) v.destroy();
     for (const v of this.pickupViews.values()) v.destroy();
