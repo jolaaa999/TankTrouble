@@ -65,24 +65,8 @@ export class GameScene extends Phaser.Scene {
   private lastInputSentAt = 0;
   private lastInputKey = '';
   private lastScoreKey = '';
-  private readonly fixedDt = 1 / GAME.tickHz;
-  /** Online: lerp tank poses toward latest server snapshot to hide 30Hz stutter. */
-  private tankTargets = new Map<
-    string,
-    {
-      x: number;
-      y: number;
-      angle: number;
-      alive: boolean;
-      colorIndex: number;
-      shieldTime: number;
-      turboTime: number;
-      freezeTime: number;
-      weapon: WeaponKind;
-      isBot: boolean;
-    }
-  >();
-  private tankLerpPos = new Map<string, { x: number; y: number; angle: number }>();
+  /** Local sim at 60Hz for snappy no-inertia feel; online stays server 30Hz. */
+  private readonly fixedDt = 1 / 60;
 
   constructor() {
     super('game');
@@ -113,8 +97,6 @@ export class GameScene extends Phaser.Scene {
     this.lastInputSentAt = 0;
     this.lastInputKey = '';
     this.lastScoreKey = '';
-    this.tankTargets.clear();
-    this.tankLerpPos.clear();
     this.clearAnnounceTexts();
   }
 
@@ -290,7 +272,6 @@ export class GameScene extends Phaser.Scene {
         this.onlineWalls = maze.walls;
         this.applyMazeLayout(maze.cols, maze.rows);
         this.mazeView?.draw(maze, this.offsetX, this.offsetY);
-        this.tankLerpPos.clear();
       }
 
       if (this.matchMode === 'mega') {
@@ -355,10 +336,7 @@ export class GameScene extends Phaser.Scene {
   update(_t: number, dtMs: number): void {
     this.timeSec += dtMs / 1000;
     if (this.mode === 'local') this.updateLocal(Math.min(0.05, dtMs / 1000));
-    else {
-      this.updateOnlineInput();
-      this.lerpOnlineTanks(Math.min(0.05, dtMs / 1000));
-    }
+    else this.updateOnlineInput();
   }
 
   private readKeys(
@@ -430,8 +408,8 @@ export class GameScene extends Phaser.Scene {
     const keys = this.readKeys(this.keys.p1);
     const key = `${keys.left?1:0}${keys.right?1:0}${keys.forward?1:0}${keys.back?1:0}${keys.fire?1:0}`;
     const now = performance.now();
-    // Send on change immediately; otherwise at ~30Hz
-    if (key === this.lastInputKey && now - this.lastInputSentAt < 33) return;
+    // Send on change immediately; otherwise at ~40Hz for snappier remote control
+    if (key === this.lastInputKey && now - this.lastInputSentAt < 25) return;
     this.lastInputKey = key;
     this.lastInputSentAt = now;
     this.seq += 1;
@@ -472,91 +450,31 @@ export class GameScene extends Phaser.Scene {
       weapon?: string;
       isBot?: boolean;
     }[],
-    opts: { lerp?: boolean } = {},
   ): void {
     const ids = new Set(tanks.map((t) => t.id));
-    const lerp = Boolean(opts.lerp);
     for (const t of tanks) {
       let view = this.tankViews.get(t.id);
       if (!view) {
         view = new TankView(this, t.colorIndex);
         this.tankViews.set(t.id, view);
       }
-      const weapon = (t.weapon as WeaponKind) ?? 'default';
-      const isBot = Boolean(t.isBot);
-      const turbo = t.turboTime ?? 0;
-      const freeze = t.freezeTime ?? 0;
-      if (lerp) {
-        this.tankTargets.set(t.id, {
-          x: this.offsetX + t.x,
-          y: this.offsetY + t.y,
-          angle: t.angle,
-          alive: t.alive,
-          colorIndex: t.colorIndex,
-          shieldTime: t.shieldTime,
-          turboTime: turbo,
-          freezeTime: freeze,
-          weapon,
-          isBot,
-        });
-        if (!this.tankLerpPos.has(t.id)) {
-          this.tankLerpPos.set(t.id, {
-            x: this.offsetX + t.x,
-            y: this.offsetY + t.y,
-            angle: t.angle,
-          });
-        }
-      } else {
-        view.setPose(
-          this.offsetX + t.x,
-          this.offsetY + t.y,
-          t.angle,
-          t.alive,
-          t.shieldTime,
-          weapon,
-          isBot,
-          turbo,
-          freeze,
-        );
-      }
+      view.setPose(
+        this.offsetX + t.x,
+        this.offsetY + t.y,
+        t.angle,
+        t.alive,
+        t.shieldTime,
+        (t.weapon as WeaponKind) ?? 'default',
+        Boolean(t.isBot),
+        t.turboTime ?? 0,
+        t.freezeTime ?? 0,
+      );
     }
     for (const [id, view] of this.tankViews) {
       if (!ids.has(id)) {
         view.destroy();
         this.tankViews.delete(id);
-        this.tankTargets.delete(id);
-        this.tankLerpPos.delete(id);
       }
-    }
-  }
-
-  private lerpOnlineTanks(dt: number): void {
-    const alpha = 1 - Math.exp(-14 * dt);
-    for (const [id, target] of this.tankTargets) {
-      const view = this.tankViews.get(id);
-      if (!view) continue;
-      let cur = this.tankLerpPos.get(id);
-      if (!cur) {
-        cur = { x: target.x, y: target.y, angle: target.angle };
-        this.tankLerpPos.set(id, cur);
-      }
-      cur.x += (target.x - cur.x) * alpha;
-      cur.y += (target.y - cur.y) * alpha;
-      let da = target.angle - cur.angle;
-      while (da > Math.PI) da -= Math.PI * 2;
-      while (da < -Math.PI) da += Math.PI * 2;
-      cur.angle += da * alpha;
-      view.setPose(
-        cur.x,
-        cur.y,
-        cur.angle,
-        target.alive,
-        target.shieldTime,
-        target.weapon,
-        target.isBot,
-        target.turboTime,
-        target.freezeTime,
-      );
     }
   }
 
@@ -592,7 +510,7 @@ export class GameScene extends Phaser.Scene {
       isBot?: boolean;
     }[] = [];
     tanks.forEach((t) => list.push(t));
-    this.syncTankViewsFromSnap(list, { lerp: true });
+    this.syncTankViewsFromSnap(list);
   }
 
   private drawBeamsFromSnap(

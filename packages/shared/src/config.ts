@@ -1,4 +1,4 @@
-export const VERSION = '0.2.6';
+export const VERSION = '0.2.7';
 
 export const GAME = {
   tickHz: 30,
@@ -7,8 +7,8 @@ export const GAME = {
   cellSize: 64,
   wallThickness: 8,
   tankRadius: 16,
-  tankSpeed: 120,
-  tankTurnSpeed: 2.8,
+  tankSpeed: 130,
+  tankTurnSpeed: 3.6,
   bulletSpeed: 280,
   bulletRadius: 5,
   maxBulletsPerTank: 5,

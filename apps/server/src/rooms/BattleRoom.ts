@@ -121,12 +121,13 @@ export class BattleRoom extends Room<BattleState> {
       this.state.fx.clear();
     });
 
-    this.setSimulationInterval((deltaTime) => {
+    this.setSimulationInterval(() => {
       if (!this.sim) return;
       if (this.state.phase !== 'playing' && this.state.phase !== 'intermission') {
         return;
       }
-      const dt = Math.min(0.05, deltaTime / 1000);
+      // Fixed dt — no variable-step inertia / stutter from timer jitter
+      const dt = 1 / GAME.tickHz;
       for (const [id, input] of this.inputs) {
         const latched = this.fireLatch.get(id) === true;
         this.fireLatch.delete(id);

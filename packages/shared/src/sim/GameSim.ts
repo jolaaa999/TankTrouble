@@ -287,7 +287,8 @@ export class GameSim {
   private tickFx(dt: number): void {
     this.fx = this.fx
       .map((f) => ({ ...f, life: f.life - dt }))
-      .filter((f) => f.life > 0);
+      .filter((f) => f.life > 0)
+      .slice(-48);
   }
 
   private addFx(
