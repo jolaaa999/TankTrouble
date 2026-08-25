@@ -18,6 +18,24 @@
 - 先到 **5 分** 获胜（`GAME.scoreToWin` 可改）
 - 场上彩色方块为原版风格技能：激光 L、散弹 S、加特林 G、追踪 H、地雷 B、破片 F、死光 D、护盾 +
 
+## 远程联机（重要）
+
+**Vercel 只能托管网页，不能跑游戏房间。** 好友打开 Vercel 时，页面里的 `localhost` 是好友自己的电脑，所以会 `ProgressEvent` / 创建·加入失败。
+
+### 临时方案（本机开服 + Cloudflare 隧道）
+
+1. `pnpm dev:server`
+2. `cloudflared tunnel --url http://localhost:27491`
+3. 得到 `https://xxxx.trycloudflare.com`，联机地址为 `wss://xxxx.trycloudflare.com`
+4. 你和好友都打开：`https://你的vercel域名/?ws=wss://xxxx.trycloudflare.com`
+5. 一人创建房间，一人加入（本机服 + 隧道需保持开启）
+
+### 正式方案
+
+把 Colyseus 部署到 Fly.io，Vercel 环境变量设 `VITE_COLYSEUS_URL=wss://你的fly域名` 后重新 Deploy。
+
+## 本地开发
+
 ```bash
 pnpm install
 pnpm --filter @tanktrouble/shared build

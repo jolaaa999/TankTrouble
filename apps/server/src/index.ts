@@ -15,8 +15,10 @@ const app = express();
 app.use(
   cors({
     origin: ALLOWED_ORIGINS.includes('*') ? true : ALLOWED_ORIGINS,
+    credentials: true,
   }),
 );
+app.options('*', cors());
 app.get('/health', (_req, res) => {
   res.json({ ok: true, version: VERSION });
 });
