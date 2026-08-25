@@ -1,3 +1,5 @@
+import type { PickupKind, WeaponKind } from './config.js';
+
 export type InputMessage = {
   seq: number;
   forward: boolean;
@@ -15,7 +17,15 @@ export type SimTank = {
   alive: boolean;
   colorIndex: number;
   fireCooldown: number;
+  weapon: WeaponKind;
+  ammo: number;
+  shieldTime: number;
+  prevFire: boolean;
+  /** Death ray / laser aim visible */
+  showLaserSight: boolean;
 };
+
+export type BulletKind = 'normal' | 'laser' | 'pellet' | 'homing' | 'frag' | 'shrapnel';
 
 export type SimBullet = {
   id: number;
@@ -25,6 +35,28 @@ export type SimBullet = {
   vx: number;
   vy: number;
   bounces: number;
+  kind: BulletKind;
+  life: number;
+  radius: number;
+};
+
+export type SimPickup = {
+  id: number;
+  kind: PickupKind;
+  x: number;
+  y: number;
+};
+
+export type SimMine = {
+  id: number;
+  ownerId: string;
+  x: number;
+  y: number;
+  armed: boolean;
+  armTimer: number;
+  triggered: boolean;
+  triggerTimer: number;
+  visible: boolean;
 };
 
 export type WallSegment = {
@@ -32,7 +64,6 @@ export type WallSegment = {
   y1: number;
   x2: number;
   y2: number;
-  /** 'h' horizontal wall (normal along y), 'v' vertical wall (normal along x) */
   kind: 'h' | 'v';
 };
 
@@ -46,15 +77,26 @@ export type MazeData = {
   walls: WallSegment[];
 };
 
+export type SimPhase = 'playing' | 'intermission' | 'matchEnd';
+
 export type SimSnapshot = {
   seed: number;
   tanks: SimTank[];
   bullets: SimBullet[];
-  phase: 'waiting' | 'playing' | 'ended';
-  winnerId: string | null;
+  pickups: SimPickup[];
+  mines: SimMine[];
+  scores: Record<string, number>;
+  phase: SimPhase;
+  roundWinnerId: string | null;
+  matchWinnerId: string | null;
+  intermissionLeft: number;
+  roundIndex: number;
 };
 
 export type SimEvent =
   | { type: 'bounce'; bulletId: number }
   | { type: 'hit'; bulletId: number; tankId: string }
-  | { type: 'roundEnd'; winnerId: string | null };
+  | { type: 'roundEnd'; winnerId: string | null }
+  | { type: 'matchEnd'; winnerId: string | null }
+  | { type: 'pickup'; tankId: string; kind: PickupKind }
+  | { type: 'score'; tankId: string; score: number };

@@ -30,20 +30,12 @@ describe('collide bounce', () => {
 });
 
 describe('GameSim', () => {
-  it('kills a tank when a bullet hits after leaving muzzle', () => {
+  it('kills a tank when a bullet hits', () => {
     const sim = new GameSim(123, ['a', 'b']);
-    const snap0 = sim.getSnapshot();
-    const victim = snap0.tanks.find((t) => t.id === 'b')!;
-    // Force a bullet onto victim by applying many forward+fire steps from a
-    // handcrafted state via public API: move a close and shoot.
-    // Place by stepping isn't easy — use reflection via apply + mutate through
-    // repeated fires in open space after we sync positions via stepping near spawn.
-    // Direct: fire from a toward b by aiming.
-    void victim;
     const anySim = sim as unknown as {
       tanks: Map<
         string,
-        { x: number; y: number; angle: number; alive: boolean; fireCooldown: number }
+        { x: number; y: number; angle: number; alive: boolean; shieldTime: number }
       >;
       bullets: {
         id: number;
@@ -53,15 +45,18 @@ describe('GameSim', () => {
         vx: number;
         vy: number;
         bounces: number;
+        kind: string;
+        life: number;
+        radius: number;
       }[];
     };
     const tankA = anySim.tanks.get('a')!;
     const tankB = anySim.tanks.get('b')!;
     tankA.x = 100;
     tankA.y = 100;
-    tankA.angle = 0;
     tankB.x = 160;
     tankB.y = 100;
+    tankB.shieldTime = 0;
     anySim.bullets.push({
       id: 99,
       ownerId: 'a',
@@ -70,21 +65,44 @@ describe('GameSim', () => {
       vx: GAME.bulletSpeed,
       vy: 0,
       bounces: 1,
+      kind: 'normal',
+      life: 10,
+      radius: GAME.bulletRadius,
     });
     const events = sim.step(1 / GAME.tickHz);
     expect(events.some((e) => e.type === 'hit' && e.tankId === 'b')).toBe(true);
     expect(sim.getSnapshot().tanks.find((t) => t.id === 'b')!.alive).toBe(false);
   });
 
-  it('ends round when one tank remains', () => {
+  it('awards score and enters intermission when one tank remains', () => {
     const sim = new GameSim(5, ['a', 'b']);
     const anySim = sim as unknown as {
       tanks: Map<string, { alive: boolean }>;
     };
     anySim.tanks.get('b')!.alive = false;
     const events = sim.step(1 / GAME.tickHz);
-    expect(events.some((e) => e.type === 'roundEnd' && e.winnerId === 'a')).toBe(
+    expect(events.some((e) => e.type === 'roundEnd' && e.winnerId === 'a')).toBe(true);
+    expect(events.some((e) => e.type === 'score' && e.tankId === 'a' && e.score === 1)).toBe(
       true,
     );
+    expect(sim.getSnapshot().phase).toBe('intermission');
+    expect(sim.getSnapshot().scores.a).toBe(1);
+  });
+
+  it('uses different seeds across rounds', () => {
+    const sim = new GameSim(42, ['a', 'b']);
+    const seed1 = sim.getSnapshot().seed;
+    const anySim = sim as unknown as {
+      tanks: Map<string, { alive: boolean }>;
+      intermissionLeft: number;
+      phase: string;
+    };
+    anySim.tanks.get('b')!.alive = false;
+    sim.step(1 / GAME.tickHz);
+    anySim.intermissionLeft = 0;
+    sim.step(1 / GAME.tickHz);
+    const seed2 = sim.getSnapshot().seed;
+    expect(seed2).not.toBe(seed1);
+    expect(sim.getSnapshot().phase).toBe('playing');
   });
 });

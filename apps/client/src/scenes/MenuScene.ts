@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { VERSION } from '@tanktrouble/shared';
+import { GAME, VERSION } from '@tanktrouble/shared';
 
 export class MenuScene extends Phaser.Scene {
   constructor() {
@@ -17,7 +17,7 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.add
-      .text(width / 2, 175, `online · v${VERSION}`, {
+      .text(width / 2, 175, `online · 先到 ${GAME.scoreToWin} 分 · v${VERSION}`, {
         fontFamily: 'Segoe UI, sans-serif',
         fontSize: '16px',
         color: '#9aa7b5',

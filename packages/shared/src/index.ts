@@ -1,7 +1,9 @@
-export { VERSION, GAME } from './config.js';
+export { VERSION, GAME, PICKUP_POOL } from './config.js';
+export type { WeaponKind, PickupKind } from './config.js';
 export { Vec2 } from './math/Vec2.js';
 export { createRng } from './maze/rng.js';
 export { generateMaze } from './maze/generateMaze.js';
+export { shuffleWithSeed } from './maze/shuffle.js';
 export { GameSim } from './sim/GameSim.js';
 export * from './sim/collide.js';
 export type * from './types.js';
