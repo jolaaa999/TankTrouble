@@ -29,7 +29,9 @@ function randomCode(): string {
 }
 
 export class BattleRoom extends Room<BattleState> {
-  maxClients = GAME.megaMaxPlayers;
+  maxClients: number = GAME.megaMaxPlayers;
+  /** Give mobile / slow networks time to finish the seat WebSocket after matchmake. */
+  seatReservationTime = 30;
   private sim: GameSim | null = null;
   private inputs = new Map<string, InputMessage>();
   /** Latches a fire press that arrived between ticks (avoids lost taps). */
@@ -55,10 +57,14 @@ export class BattleRoom extends Room<BattleState> {
         : CLASSIC_MATCH.maxPlayers;
     this.state.rosterSize = roster;
     this.state.scoreToWin = preset.scoreToWin;
+    // Cap room size to roster so joiners get a clear "full" instead of hanging
+    this.maxClients = roster;
     this.setMetadata({ roomCode: this.state.roomCode, mode: this.state.mode });
     // Sync snapshots ~30Hz (was default ~20)
     this.setPatchRate(Math.floor(1000 / GAME.tickHz));
-
+    console.log(
+      `[battle] create ${this.state.roomCode} mode=${this.state.mode} roster=${roster} fill=${this.state.fillWithBots}`,
+    );
     this.onMessage('ready', (client) => {
       const p = this.state.players.get(client.sessionId);
       if (!p || this.state.phase === 'playing' || this.state.phase === 'intermission') return;
@@ -78,6 +84,7 @@ export class BattleRoom extends Room<BattleState> {
       const size = message?.size === 6 ? 6 : 8;
       if (this.state.players.size > size) return;
       this.state.rosterSize = size;
+      this.maxClients = size;
       this.tryStart();
     });
 
@@ -146,6 +153,9 @@ export class BattleRoom extends Room<BattleState> {
     p.team = this.state.mode === 'mega' ? colorIndex % 2 : colorIndex;
     this.state.players.set(client.sessionId, p);
     this.state.scores.set(client.sessionId, 0);
+    console.log(
+      `[battle] join ${this.state.roomCode} ${client.sessionId} (${this.state.players.size}/${this.state.rosterSize})`,
+    );
   }
 
   async onLeave(client: Client): Promise<void> {

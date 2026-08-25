@@ -186,6 +186,36 @@ describe('BotAI wall avoidance', () => {
     expect(input.forward).toBe(false);
     expect(clearanceAlong(self.x, self.y, self.angle, [wall], 100)).toBeLessThan(40);
   });
+
+  it('drives forward in open space toward a foe', () => {
+    const self = {
+      id: 'bot-0',
+      x: 200,
+      y: 200,
+      angle: 0,
+      alive: true,
+      colorIndex: 0,
+      team: 0,
+      fireCooldown: 0,
+      weapon: 'default' as const,
+      ammo: Infinity,
+      shieldTime: 0,
+      turboTime: 0,
+      freezeTime: 0,
+      prevFire: false,
+      showLaserSight: false,
+      isBot: true,
+    };
+    const foe = {
+      ...self,
+      id: 'p1',
+      x: 320,
+      y: 200,
+      isBot: false,
+    };
+    const input = computeBotInput(self, [foe], [], 2.0, []);
+    expect(input.forward).toBe(true);
+  });
 });
 
 describe('GameSim', () => {

@@ -88,7 +88,7 @@ export class BattleState extends Schema {
   @type('number') matchWinnerTeam = -1;
   @type('number') roundIndex = 1;
   @type('number') intermissionLeft = 0;
-  @type('boolean') fillWithBots = true;
+  @type('boolean') fillWithBots = false;
   /** classic | mega */
   @type('string') mode = 'classic';
   @type('number') rosterSize = 4;

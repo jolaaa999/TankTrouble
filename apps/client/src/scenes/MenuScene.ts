@@ -3,7 +3,7 @@ import { VERSION, type MatchMode } from '@tanktrouble/shared';
 import { getColyseusUrl, pingServer } from '../net/ColyseusClient';
 
 export class MenuScene extends Phaser.Scene {
-  private fillWithBots = true;
+  private fillWithBots = false;
   private matchMode: MatchMode = 'classic';
   private rosterSize = 8;
   private aiToggleLabel: Phaser.GameObjects.Text | null = null;
@@ -153,14 +153,13 @@ export class MenuScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     this.soloBtnBg.on('pointerover', () => {
-      if (!this.fillWithBots) return;
       this.soloBtnBg?.setFillStyle(0x3d7dff);
     });
     this.soloBtnBg.on('pointerout', () => {
-      this.soloBtnBg?.setFillStyle(this.fillWithBots ? 0x2f6fed : 0x546e7a);
+      this.soloBtnBg?.setFillStyle(0x2f6fed);
     });
     this.soloBtnBg.on('pointerdown', () => {
-      if (!this.fillWithBots) return;
+      // Solo always fills with bots, independent of the lobby AI-fill toggle
       this.scene.start('game', {
         mode: 'local',
         withBots: true,
@@ -185,8 +184,8 @@ export class MenuScene extends Phaser.Scene {
     this.rosterLabel?.setText(
       mega ? `超多人席位：${this.rosterSize}（点切 6/8）` : '席位：经典 4 人',
     );
-    this.soloBtnBg?.setFillStyle(on ? 0x2f6fed : 0x546e7a);
-    this.soloBtnLabel?.setAlpha(on ? 1 : 0.45);
+    this.soloBtnBg?.setFillStyle(0x2f6fed);
+    this.soloBtnLabel?.setAlpha(1);
     this.tipText?.setText(
       mega
         ? '超多人：两队对打，灭掉对面全员得 1 局，先到 10；越往后地图越大。T加速 Z冰冻 W闪现 E电磁 A空袭'

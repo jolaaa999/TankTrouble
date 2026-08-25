@@ -18,7 +18,7 @@ type LobbyData = {
 
 export class LobbyScene extends Phaser.Scene {
   private action: 'create' | 'join' = 'create';
-  private initialFillWithBots = true;
+  private initialFillWithBots = false;
   private initialMode: MatchMode = 'classic';
   private initialRoster = 4;
   private room: Room | null = null;
@@ -36,7 +36,7 @@ export class LobbyScene extends Phaser.Scene {
 
   init(data: LobbyData): void {
     this.action = data.action;
-    this.initialFillWithBots = data.fillWithBots ?? true;
+    this.initialFillWithBots = data.fillWithBots ?? false;
     this.initialMode = data.mode ?? 'classic';
     this.initialRoster = data.rosterSize ?? (this.initialMode === 'mega' ? 8 : 4);
     this.room = null;
@@ -181,8 +181,9 @@ export class LobbyScene extends Phaser.Scene {
         mode: string;
         rosterSize: number;
         scoreToWin: number;
-        players: Map<string, { ready: boolean; colorIndex: number; team: number }>;
+        players: Map<string, { ready: boolean; colorIndex: number; team: number }> | undefined;
       };
+      if (!state?.roomCode || !state.players) return;
       if (state.phase === 'playing') {
         this.goGame(room);
         return;
@@ -227,6 +228,18 @@ export class LobbyScene extends Phaser.Scene {
       this.rosterBtnLabel?.setVisible(mega);
       this.rosterBtnLabel?.setText(`席位 ${roster}（点切 6/8）`);
     };
+
+    room.onError((code, message) => {
+      this.infoText.setText(`房间错误 (${code}): ${message || '连接中断'}\n可返回菜单重开`);
+    });
+    room.onLeave((code) => {
+      if (this.started) return;
+      if (code === 1006) {
+        this.infoText.setText(
+          `连接异常断开 (1006)\n${getColyseusUrl()}\n请返回菜单重新创建/加入`,
+        );
+      }
+    });
 
     room.onStateChange(sync);
     sync();

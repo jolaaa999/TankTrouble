@@ -30,6 +30,6 @@ const gameServer = new Server({
 
 gameServer.define('battle', BattleRoom).filterBy(['roomCode']);
 
-httpServer.listen(PORT, () => {
-  console.log(`TankTrouble server on :${PORT} (v${VERSION})`);
+httpServer.listen(PORT, '0.0.0.0', () => {
+  console.log(`TankTrouble server on 0.0.0.0:${PORT} (v${VERSION})`);
 });

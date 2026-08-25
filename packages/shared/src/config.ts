@@ -1,4 +1,4 @@
-export const VERSION = '0.2.3';
+export const VERSION = '0.2.4';
 
 export const GAME = {
   tickHz: 30,
@@ -37,7 +37,7 @@ export const GAME = {
   maxPlayers: 4,
   megaMaxPlayers: 8,
   minPlayers: 1,
-  fillWithBots: true,
+  fillWithBots: false,
   scoreToWin: 5,
   megaScoreToWin: 10,
   intermissionSec: 2.2,
@@ -87,7 +87,7 @@ export const CLASSIC_MATCH: MatchConfig = {
   mode: 'classic',
   maxPlayers: 4,
   scoreToWin: GAME.scoreToWin,
-  fillWithBots: true,
+  fillWithBots: false,
   teamMode: false,
   scalingMaps: false,
 };
@@ -96,7 +96,7 @@ export const MEGA_MATCH: MatchConfig = {
   mode: 'mega',
   maxPlayers: 8,
   scoreToWin: GAME.megaScoreToWin,
-  fillWithBots: true,
+  fillWithBots: false,
   teamMode: true,
   scalingMaps: true,
 };

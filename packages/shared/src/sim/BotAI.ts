@@ -42,7 +42,8 @@ export function clearanceAlong(
 }
 
 /**
- * Chase / loot AI with wall probes: turn toward open space, reverse when jammed.
+ * Chase / loot AI: keep moving, only reverse when nearly kissing a wall.
+ * Probe count is kept low for tick performance.
  */
 export function computeBotInput(
   self: SimTank,
@@ -65,7 +66,7 @@ export function computeBotInput(
   let targetY = self.y;
   let mode: 'fight' | 'loot' | 'wander' = 'wander';
 
-  let bestLoot = 110;
+  let bestLoot = 130;
   for (const p of pickups) {
     const d = Math.hypot(p.x - self.x, p.y - self.y);
     if (d < bestLoot) {
@@ -92,82 +93,56 @@ export function computeBotInput(
     targetY = nearest.y;
     mode = 'fight';
   } else if (mode === 'wander') {
-    // Prefer open corridors instead of oscillating in place
-    const samples = 8;
-    let bestClear = -1;
-    let bestAng = self.angle;
-    for (let i = 0; i < samples; i++) {
-      const ang = self.angle + (i / samples) * Math.PI * 2;
-      const c = clearanceAlong(self.x, self.y, ang, walls, 140);
-      if (c > bestClear) {
-        bestClear = c;
-        bestAng = ang;
-      }
-    }
-    targetX = self.x + Math.cos(bestAng) * 80;
-    targetY = self.y + Math.sin(bestAng) * 80;
+    // Cheap wander — no multi-sample wall fan every tick
+    const wobble = Math.sin(timeSec * 1.4 + self.colorIndex * 1.7) * 0.9;
+    const ang = self.angle + wobble;
+    targetX = self.x + Math.cos(ang) * 90;
+    targetY = self.y + Math.sin(ang) * 90;
   }
 
-  const fwd = clearanceAlong(self.x, self.y, self.angle, walls, 130);
-  const leftClear = clearanceAlong(self.x, self.y, self.angle - 0.7, walls, 100);
-  const rightClear = clearanceAlong(self.x, self.y, self.angle + 0.7, walls, 100);
-  const backClear = clearanceAlong(self.x, self.y, self.angle + Math.PI, walls, 70);
-
-  const jammed = fwd < 28;
-  const tight = fwd < 48;
+  // Three probes only (was 12+)
+  const fwd = clearanceAlong(self.x, self.y, self.angle, walls, 90);
+  const leftClear = clearanceAlong(self.x, self.y, self.angle - 1.0, walls, 70);
+  const rightClear = clearanceAlong(self.x, self.y, self.angle + 1.0, walls, 70);
 
   let desired = Math.atan2(targetY - self.y, targetX - self.x);
+  const towardClear = clearanceAlong(self.x, self.y, desired, walls, 80);
 
-  // If path toward target is blocked, bias toward the more open side
-  const towardClear = clearanceAlong(self.x, self.y, desired, walls, 110);
-  if (towardClear < 55 || jammed) {
-    if (leftClear > rightClear + 8) desired = self.angle - 1.1;
-    else if (rightClear > leftClear + 8) desired = self.angle + 1.1;
-    else if (backClear > 35) desired = self.angle + Math.PI;
-    else desired = self.angle + (self.colorIndex % 2 === 0 ? 1.2 : -1.2);
+  if (towardClear < 36 || fwd < 24) {
+    if (leftClear > rightClear + 6) desired = self.angle - 1.15;
+    else if (rightClear > leftClear + 6) desired = self.angle + 1.15;
+    else desired = self.angle + (self.colorIndex % 2 === 0 ? Math.PI * 0.7 : -Math.PI * 0.7);
   }
 
   const diff = angleDiff(self.angle, desired);
-  const aimSlop = mode === 'loot' ? 0.32 : jammed ? 0.18 : 0.22;
+  const aimSlop = mode === 'loot' ? 0.28 : 0.2;
 
   if (diff > aimSlop) input.right = true;
   else if (diff < -aimSlop) input.left = true;
 
-  const facingOk = Math.abs(diff) < 0.6;
-  const dist = Math.hypot(targetX - self.x, targetY - self.y);
+  const distance = Math.hypot(targetX - self.x, targetY - self.y);
 
-  if (jammed) {
-    // Back out of the wall, keep turning toward open space
-    if (backClear > 18) input.back = true;
-    else if (leftClear > rightClear) input.left = true;
-    else input.right = true;
-  } else if (tight && !facingOk) {
-    // Too close to wall while turning — ease off throttle
-    if (Math.abs(diff) > 0.9 && backClear > 22) input.back = true;
-    else if (facingOk && fwd > 36) input.forward = true;
-  } else if (facingOk) {
-    if (mode === 'loot' || dist > 64) {
-      if (fwd > 34) input.forward = true;
-      else if (backClear > 24) input.back = true;
-    } else if (dist < 46 && mode === 'fight') {
-      if (backClear > 22) input.back = true;
+  // Hard jam: reverse; otherwise prefer forward so bots don't freeze
+  if (fwd < 20) {
+    input.back = true;
+    input.forward = false;
+  } else if (Math.abs(diff) < 0.95) {
+    if (mode === 'fight' && distance < 50 && fwd > 28) {
+      // Hold distance a bit
+      if (distance < 38) input.back = true;
+      else input.forward = true;
+    } else {
+      input.forward = true;
     }
-  } else if (Math.abs(diff) < 1.15 && fwd > 50) {
-    // Creep forward while aligning if corridor is open
+  } else if (fwd > 40) {
+    // Creep while turning in open space
     input.forward = true;
   }
 
-  // Don't charge a nearly-closed forward gap
-  if (input.forward && fwd < 32) {
-    input.forward = false;
-    if (leftClear > rightClear) input.left = true;
-    else input.right = true;
-  }
-
-  if (mode === 'fight' && nearest && Math.abs(diff) < 0.28 && dist < 420 && fwd > 20) {
+  if (mode === 'fight' && nearest && Math.abs(diff) < 0.3 && distance < 440 && fwd > 16) {
     input.fire = self.weapon === 'gatling' ? true : ((timeSec * 4) | 0) % 3 !== 0;
   }
-  if (mode === 'fight' && nearest && dist < 160 && self.weapon !== 'default') {
+  if (mode === 'fight' && nearest && distance < 170 && self.weapon !== 'default') {
     input.fire = true;
   }
 

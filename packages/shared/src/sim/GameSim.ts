@@ -821,7 +821,7 @@ export class GameSim {
       const speed = Math.hypot(bullet.vx, bullet.vy);
       const hitR = bullet.radius + GAME.wallThickness * 0.5;
       // More substeps for fast bullets; always use swept tests against walls
-      const steps = Math.max(4, Math.ceil((speed * dt) / Math.max(2, hitR * 0.6)));
+      const steps = Math.max(2, Math.ceil((speed * dt) / Math.max(2, hitR * 0.75)));
       const sdt = dt / steps;
       for (let i = 0; i < steps && alive; i++) {
         let travel = sdt;
