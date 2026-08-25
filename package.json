@@ -7,6 +7,7 @@
     "dev:client": "pnpm --filter @tanktrouble/client dev",
     "dev:server": "pnpm --filter @tanktrouble/server dev",
     "build": "pnpm -r run build",
+    "build:web": "pnpm --filter @tanktrouble/shared build && pnpm --filter @tanktrouble/client build",
     "test": "pnpm -r run test"
   },
   "engines": {

@@ -32,6 +32,27 @@ VITE_COLYSEUS_URL=ws://localhost:27491
 
 ## 部署
 
+### Vercel（前端）项目设置
+
+在 Vercel Project Settings → General：
+
+- **Root Directory**: 留空（仓库根目录），不要选 `apps/client`
+- Framework Preset 可被根目录 `vercel.json` 覆盖
+
+根目录 `vercel.json` 已配置：
+
+- Install: `pnpm install`
+- Build: 先编 shared 再编 client
+- Output: `apps/client/dist`
+
+环境变量：
+
+```
+VITE_COLYSEUS_URL=wss://你的-fly-域名
+```
+
+本地联机开发仍用 `ws://localhost:27491`。
+
 ### 1) Fly.io（游戏服）
 
 ```bash
