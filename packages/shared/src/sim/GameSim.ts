@@ -4,8 +4,10 @@ import {
   PICKUP_POOL,
   mazeSizeForRound,
   type MatchConfig,
+  type SkillId,
   type WeaponKind,
 } from '../config.js';
+import { parsePickup, SKILLS } from '../skills.js';
 import { generateMaze } from '../maze/generateMaze.js';
 import { createRng } from '../maze/rng.js';
 import { shuffleWithSeed } from '../maze/shuffle.js';
@@ -43,7 +45,7 @@ const emptyInput = (): InputMessage => ({
   fire: false,
 });
 
-function weaponAmmo(kind: WeaponKind): number {
+function weaponAmmo(kind: WeaponKind, plus: boolean): number {
   switch (kind) {
     case 'laser':
     case 'homing':
@@ -56,13 +58,23 @@ function weaponAmmo(kind: WeaponKind): number {
     case 'cannon':
     case 'nova':
     case 'rail':
+    case 'invis':
+    case 'dash':
+    case 'knockback':
+    case 'magnet':
+    case 'pierce':
+    case 'quad':
+    case 'umbrella':
+    case 'vortex':
+    case 'xsplit':
+    case 'yard':
       return 1;
     case 'shotgun':
-      return GAME.shotgunAmmo;
+      return plus ? Math.ceil(GAME.shotgunAmmo * GAME.plusCountMul) : GAME.shotgunAmmo;
     case 'gatling':
-      return GAME.gatlingAmmo;
+      return plus ? Math.ceil(GAME.gatlingAmmo * GAME.plusCountMul) : GAME.gatlingAmmo;
     case 'booby':
-      return GAME.mineCount;
+      return plus ? Math.ceil(GAME.mineCount * GAME.plusCountMul) : GAME.mineCount;
     case 'turbo':
       return 0;
     default:
@@ -218,10 +230,15 @@ export class GameSim {
         team: this.teamById.get(id) ?? 0,
         fireCooldown: 0,
         weapon: 'default',
+        weaponPlus: false,
         ammo: Infinity,
         shieldTime: 0,
         turboTime: 0,
+        turboPlus: false,
         freezeTime: 0,
+        invisTime: 0,
+        umbrellaTime: 0,
+        umbrellaPlus: false,
         prevFire: false,
         showLaserSight: false,
         isBot: isBotId(id),
@@ -316,7 +333,7 @@ export class GameSim {
     });
   }
 
-  private announceSkill(tank: SimTank, skillKey: string): void {
+  private announceSkill(tank: SimTank, skillKey: string, plus?: boolean): void {
     this.addFx(
       'announce',
       tank.x,
@@ -324,8 +341,41 @@ export class GameSim {
       28,
       tank.colorIndex,
       0.9,
-      skillLabel(skillKey),
+      skillLabel(skillKey, plus ?? tank.weaponPlus),
     );
+  }
+
+  private scaleRadius(tank: SimTank, value: number): number {
+    return tank.weaponPlus ? value * GAME.plusRadiusMul : value;
+  }
+
+  private scaleDuration(tank: SimTank, value: number): number {
+    return tank.weaponPlus ? value * GAME.plusDurationMul : value;
+  }
+
+  private scaleCount(tank: SimTank, value: number): number {
+    return tank.weaponPlus ? Math.ceil(value * GAME.plusCountMul) : value;
+  }
+
+  private scaleDist(tank: SimTank, value: number): number {
+    return tank.weaponPlus ? value * GAME.plusDistMul : value;
+  }
+
+  private scaleSpeed(tank: SimTank, value: number): number {
+    return tank.weaponPlus ? value * GAME.plusSpeedMul : value;
+  }
+
+  private applyInstantSkill(tank: SimTank, skillId: SkillId, plus: boolean): void {
+    if (skillId === 'shield') {
+      tank.shieldTime = plus ? GAME.plusShieldDurationSec : GAME.shieldDurationSec;
+      this.announceSkill(tank, skillId, plus);
+      this.addFx('shield', tank.x, tank.y, GAME.tankRadius + 18, tank.colorIndex, 0.55);
+    } else if (skillId === 'turbo') {
+      tank.turboTime = plus ? GAME.plusTurboDurationSec : GAME.turboDurationSec;
+      tank.turboPlus = plus;
+      this.announceSkill(tank, skillId, plus);
+      this.addFx('turbo', tank.x, tank.y, GAME.tankRadius + 14, tank.colorIndex, 0.5);
+    }
   }
 
   private tickPickups(dt: number, events: SimEvent[]): void {
@@ -343,19 +393,16 @@ export class GameSim {
       );
       if (!hit) continue;
       this.pickups = this.pickups.filter((p) => p.id !== hit.id);
+      const parsed = parsePickup(hit.kind);
+      if (!parsed) continue;
+      const { skillId, plus } = parsed;
       events.push({ type: 'pickup', tankId: tank.id, kind: hit.kind });
-      if (hit.kind === 'shield') {
-        tank.shieldTime = GAME.shieldDurationSec;
-        this.announceSkill(tank, 'shield');
-        this.addFx('shield', tank.x, tank.y, GAME.tankRadius + 18, tank.colorIndex, 0.55);
-      } else if (hit.kind === 'turbo') {
-        tank.turboTime = GAME.turboDurationSec;
-        this.announceSkill(tank, 'turbo');
-        this.addFx('turbo', tank.x, tank.y, GAME.tankRadius + 14, tank.colorIndex, 0.5);
+      if (SKILLS[skillId].instant) {
+        this.applyInstantSkill(tank, skillId, plus);
       } else {
-        tank.weapon = hit.kind;
-        tank.ammo = weaponAmmo(hit.kind);
-        // Allow firing on next press even if Space was held while picking up
+        tank.weapon = skillId;
+        tank.weaponPlus = plus;
+        tank.ammo = weaponAmmo(skillId, plus);
         tank.prevFire = false;
       }
     }
@@ -386,7 +433,11 @@ export class GameSim {
 
       tank.shieldTime = Math.max(0, tank.shieldTime - dt);
       tank.turboTime = Math.max(0, tank.turboTime - dt);
+      if (tank.turboTime <= 0) tank.turboPlus = false;
       tank.freezeTime = Math.max(0, tank.freezeTime - dt);
+      tank.invisTime = Math.max(0, tank.invisTime - dt);
+      tank.umbrellaTime = Math.max(0, tank.umbrellaTime - dt);
+      if (tank.umbrellaTime <= 0) tank.umbrellaPlus = false;
       tank.showLaserSight = tank.weapon === 'laser' || tank.weapon === 'deathray';
 
       if (tank.freezeTime > 0) {
@@ -394,8 +445,18 @@ export class GameSim {
         continue;
       }
 
-      const speedMul = tank.turboTime > 0 ? GAME.turboSpeedMul : 1;
-      const turnMul = tank.turboTime > 0 ? GAME.turboTurnMul : 1;
+      const speedMul =
+        tank.turboTime > 0
+          ? tank.turboPlus
+            ? GAME.plusTurboSpeedMul
+            : GAME.turboSpeedMul
+          : 1;
+      const turnMul =
+        tank.turboTime > 0
+          ? tank.turboPlus
+            ? GAME.plusTurboTurnMul
+            : GAME.turboTurnMul
+          : 1;
 
       const steeringMissile = this.bullets.find(
         (b) => b.ownerId === tank.id && b.kind === 'homing' && b.life > 0,
@@ -432,6 +493,7 @@ export class GameSim {
 
   private clearWeapon(tank: SimTank): void {
     tank.weapon = 'default';
+    tank.weaponPlus = false;
     tank.ammo = Infinity;
   }
 
@@ -504,7 +566,7 @@ export class GameSim {
 
     if (tank.weapon === 'laser') {
       this.announceSkill(tank, 'laser');
-      this.fireLaserBeam(tank, 'laser', GAME.laserBounces, false);
+      this.fireLaserBeam(tank, 'laser', this.scaleCount(tank, GAME.laserBounces), false);
       this.addMuzzleFx(tank);
       this.addFx('cast', tank.x, tank.y, 36, tank.colorIndex, 0.4);
       this.clearWeapon(tank);
@@ -514,7 +576,7 @@ export class GameSim {
 
     if (tank.weapon === 'deathray') {
       this.announceSkill(tank, 'deathray');
-      this.fireLaserBeam(tank, 'deathray', 10, true);
+      this.fireLaserBeam(tank, 'deathray', this.scaleCount(tank, 10), true);
       this.addMuzzleFx(tank);
       this.addFx('cast', tank.x, tank.y, 48, tank.colorIndex, 0.5);
       this.clearWeapon(tank);
@@ -524,13 +586,13 @@ export class GameSim {
 
     if (tank.weapon === 'freeze') {
       this.announceSkill(tank, 'freeze');
-      this.addFx('freeze', tank.x, tank.y, GAME.freezeRadius, tank.colorIndex, 0.55);
+      const radius = this.scaleRadius(tank, GAME.freezeRadius);
+      const duration = this.scaleDuration(tank, GAME.freezeDurationSec);
+      this.addFx('freeze', tank.x, tank.y, radius, tank.colorIndex, 0.55);
       for (const other of this.tanks.values()) {
         if (!other.alive || this.isAlly(tank, other)) continue;
-        if (
-          circlesOverlap(tank.x, tank.y, GAME.freezeRadius, other.x, other.y, GAME.tankRadius)
-        ) {
-          other.freezeTime = Math.max(other.freezeTime, GAME.freezeDurationSec);
+        if (circlesOverlap(tank.x, tank.y, radius, other.x, other.y, GAME.tankRadius)) {
+          other.freezeTime = Math.max(other.freezeTime, duration);
         }
       }
       this.clearWeapon(tank);
@@ -547,7 +609,8 @@ export class GameSim {
       let x = tank.x;
       let y = tank.y;
       let traveled = 0;
-      while (traveled < GAME.blinkDistance) {
+      const maxDist = this.scaleDist(tank, GAME.blinkDistance);
+      while (traveled < maxDist) {
         const nx = x + f.x * step;
         const ny = y + f.y * step;
         const resolved = resolveCircleWalls(nx, ny, GAME.tankRadius + 6, this.maze.walls);
@@ -567,16 +630,19 @@ export class GameSim {
 
     if (tank.weapon === 'emp') {
       this.announceSkill(tank, 'emp');
-      this.addFx('emp', tank.x, tank.y, GAME.empRadius, tank.colorIndex, 0.55);
+      const radius = this.scaleRadius(tank, GAME.empRadius);
+      this.addFx('emp', tank.x, tank.y, radius, tank.colorIndex, 0.55);
       for (const other of this.tanks.values()) {
         if (!other.alive || this.isAlly(tank, other)) continue;
-        if (!circlesOverlap(tank.x, tank.y, GAME.empRadius, other.x, other.y, GAME.tankRadius)) {
+        if (!circlesOverlap(tank.x, tank.y, radius, other.x, other.y, GAME.tankRadius)) {
           continue;
         }
         other.weapon = 'default';
+        other.weaponPlus = false;
         other.ammo = Infinity;
         other.turboTime = 0;
-        other.freezeTime = Math.max(other.freezeTime, 0.6);
+        other.turboPlus = false;
+        other.freezeTime = Math.max(other.freezeTime, this.scaleDuration(tank, 0.6));
       }
       this.clearWeapon(tank);
       tank.fireCooldown = 0.3;
@@ -586,18 +652,19 @@ export class GameSim {
     if (tank.weapon === 'airstrike') {
       this.announceSkill(tank, 'airstrike');
       const f = forwardFromAngle(tank.angle);
-      const dist = 160;
+      const dist = this.scaleDist(tank, 160);
       const hx = tank.x + f.x * dist;
       const hy = tank.y + f.y * dist;
+      const radius = this.scaleRadius(tank, GAME.airstrikeRadius);
       this.hazards.push({
         id: this.nextHazardId++,
         x: hx,
         y: hy,
-        radius: GAME.airstrikeRadius,
-        timer: GAME.airstrikeDelaySec,
+        radius,
+        timer: this.scaleDuration(tank, GAME.airstrikeDelaySec),
         ownerId: tank.id,
       });
-      this.addFx('airstrike', hx, hy, GAME.airstrikeRadius, tank.colorIndex, 0.65);
+      this.addFx('airstrike', hx, hy, radius, tank.colorIndex, 0.65);
       this.clearWeapon(tank);
       tank.fireCooldown = 0.35;
       return;
@@ -606,12 +673,12 @@ export class GameSim {
     if (tank.weapon === 'shotgun') {
       this.announceSkill(tank, 'shotgun');
       const base = tank.angle;
-      const n = GAME.shotgunPellets;
+      const n = this.scaleCount(tank, GAME.shotgunPellets);
+      const spread = tank.weaponPlus ? GAME.shotgunSpread * 1.25 : GAME.shotgunSpread;
       for (let i = 0; i < n; i++) {
-        const t = i / (n - 1);
-        const ang = base - GAME.shotgunSpread / 2 + t * GAME.shotgunSpread;
+        const t = n > 1 ? i / (n - 1) : 0.5;
+        const ang = base - spread / 2 + t * spread;
         const f = forwardFromAngle(ang);
-        // Temporary face along pellet direction for safe spawn
         const face = tank.angle;
         tank.angle = ang;
         const p = this.safeForwardPoint(tank, GAME.tankRadius + 6, 3.5);
@@ -621,8 +688,8 @@ export class GameSim {
           ownerId: tank.id,
           x: p.x,
           y: p.y,
-          vx: f.x * (GAME.bulletSpeed * 1.15),
-          vy: f.y * (GAME.bulletSpeed * 1.15),
+          vx: f.x * this.scaleSpeed(tank, GAME.bulletSpeed * 1.15),
+          vy: f.y * this.scaleSpeed(tank, GAME.bulletSpeed * 1.15),
           bounces: 0,
           kind: 'pellet',
           life: 1.1,
@@ -660,7 +727,8 @@ export class GameSim {
 
     if (tank.weapon === 'cannon') {
       this.announceSkill(tank, 'cannon');
-      this.spawnBullet(tank, 'normal', GAME.cannonSpeed, GAME.cannonRadius, GAME.cannonLife);
+      const radius = tank.weaponPlus ? GAME.cannonRadius * 1.25 : GAME.cannonRadius;
+      this.spawnBullet(tank, 'normal', this.scaleSpeed(tank, GAME.cannonSpeed), radius, GAME.cannonLife);
       this.bullets[this.bullets.length - 1]!.life = 8;
       this.addMuzzleFx(tank);
       this.addFx('cast', tank.x, tank.y, 34, tank.colorIndex, 0.35);
@@ -672,7 +740,13 @@ export class GameSim {
     if (tank.weapon === 'nova') {
       this.announceSkill(tank, 'nova');
       this.addFx('burst', tank.x, tank.y, 52, tank.colorIndex, 0.45);
-      this.spawnTriangleShrapnel(tank.id, tank.x, tank.y, GAME.novaShrapnel, 1.05);
+      this.spawnTriangleShrapnel(
+        tank.id,
+        tank.x,
+        tank.y,
+        this.scaleCount(tank, GAME.novaShrapnel),
+        tank.weaponPlus ? 1.15 : 1.05,
+      );
       this.clearWeapon(tank);
       tank.fireCooldown = 0.35;
       return;
@@ -680,12 +754,245 @@ export class GameSim {
 
     if (tank.weapon === 'rail') {
       this.announceSkill(tank, 'rail');
-      this.spawnBullet(tank, 'normal', GAME.railSpeed, 4, 3);
-      this.bullets[this.bullets.length - 1]!.life = GAME.railLife;
+      this.spawnBullet(tank, 'normal', this.scaleSpeed(tank, GAME.railSpeed), 4, 3);
+      this.bullets[this.bullets.length - 1]!.life = this.scaleDuration(tank, GAME.railLife);
       this.addMuzzleFx(tank);
       this.addFx('cast', tank.x, tank.y, 28, tank.colorIndex, 0.3);
       this.clearWeapon(tank);
       tank.fireCooldown = 0.3;
+      return;
+    }
+
+    if (tank.weapon === 'invis') {
+      this.announceSkill(tank, 'invis');
+      tank.invisTime = this.scaleDuration(tank, GAME.invisDurationSec);
+      this.addFx('cast', tank.x, tank.y, 36, tank.colorIndex, 0.45);
+      this.clearWeapon(tank);
+      tank.fireCooldown = 0.25;
+      return;
+    }
+
+    if (tank.weapon === 'dash') {
+      this.announceSkill(tank, 'dash');
+      const fromX = tank.x;
+      const fromY = tank.y;
+      const f = forwardFromAngle(tank.angle);
+      const step = 6;
+      let x = tank.x;
+      let y = tank.y;
+      let traveled = 0;
+      const maxDist = this.scaleDist(tank, GAME.dashDistance);
+      while (traveled < maxDist) {
+        const nx = x + f.x * step;
+        const ny = y + f.y * step;
+        const resolved = resolveCircleWalls(nx, ny, GAME.tankRadius + 6, this.maze.walls);
+        if (Math.hypot(resolved.x - nx, resolved.y - ny) > 0.5) break;
+        x = resolved.x;
+        y = resolved.y;
+        traveled += step;
+      }
+      tank.x = x;
+      tank.y = y;
+      this.addFx('blink', fromX, fromY, 18, tank.colorIndex, 0.28);
+      this.addFx('blink', x, y, 18, tank.colorIndex, 0.32);
+      this.clearWeapon(tank);
+      tank.fireCooldown = 0.15;
+      return;
+    }
+
+    if (tank.weapon === 'knockback') {
+      this.announceSkill(tank, 'knockback');
+      const radius = this.scaleRadius(tank, GAME.knockbackRadius);
+      const force = this.scaleDist(tank, GAME.knockbackForce);
+      this.addFx('emp', tank.x, tank.y, radius, tank.colorIndex, 0.4);
+      for (const other of this.tanks.values()) {
+        if (!other.alive || this.isAlly(tank, other)) continue;
+        if (!circlesOverlap(tank.x, tank.y, radius, other.x, other.y, GAME.tankRadius)) continue;
+        const dx = other.x - tank.x;
+        const dy = other.y - tank.y;
+        const d = Math.hypot(dx, dy) || 1;
+        const resolved = resolveCircleWalls(
+          other.x + (dx / d) * force,
+          other.y + (dy / d) * force,
+          GAME.tankRadius + 6,
+          this.maze.walls,
+        );
+        other.x = resolved.x;
+        other.y = resolved.y;
+      }
+      this.clearWeapon(tank);
+      tank.fireCooldown = 0.3;
+      return;
+    }
+
+    if (tank.weapon === 'magnet') {
+      this.announceSkill(tank, 'magnet');
+      const radius = this.scaleRadius(tank, GAME.magnetRadius);
+      const pull = this.scaleDist(tank, GAME.magnetPull);
+      this.addFx('freeze', tank.x, tank.y, radius, tank.colorIndex, 0.4);
+      for (const other of this.tanks.values()) {
+        if (!other.alive || this.isAlly(tank, other)) continue;
+        if (!circlesOverlap(tank.x, tank.y, radius, other.x, other.y, GAME.tankRadius)) continue;
+        const dx = tank.x - other.x;
+        const dy = tank.y - other.y;
+        const d = Math.hypot(dx, dy) || 1;
+        const resolved = resolveCircleWalls(
+          other.x + (dx / d) * pull,
+          other.y + (dy / d) * pull,
+          GAME.tankRadius + 6,
+          this.maze.walls,
+        );
+        other.x = resolved.x;
+        other.y = resolved.y;
+      }
+      this.clearWeapon(tank);
+      tank.fireCooldown = 0.3;
+      return;
+    }
+
+    if (tank.weapon === 'pierce') {
+      this.announceSkill(tank, 'pierce');
+      const hitsLeft = tank.weaponPlus ? GAME.pierceHitsPlus : GAME.pierceHits;
+      const f = forwardFromAngle(tank.angle);
+      const radius = 5;
+      const p = this.safeForwardPoint(tank, GAME.tankRadius + radius + 2, radius);
+      this.bullets.push({
+        id: this.nextBulletId++,
+        ownerId: tank.id,
+        x: p.x,
+        y: p.y,
+        vx: f.x * this.scaleSpeed(tank, GAME.bulletSpeed * 1.2),
+        vy: f.y * this.scaleSpeed(tank, GAME.bulletSpeed * 1.2),
+        bounces: 0,
+        kind: 'pierce',
+        life: 6,
+        radius,
+        hitsLeft,
+      });
+      this.addMuzzleFx(tank);
+      this.addFx('cast', tank.x, tank.y, 30, tank.colorIndex, 0.35);
+      this.clearWeapon(tank);
+      tank.fireCooldown = 0.3;
+      return;
+    }
+
+    if (tank.weapon === 'quad') {
+      this.announceSkill(tank, 'quad');
+      const base = tank.angle;
+      const spread = tank.weaponPlus ? GAME.quadSpread * 1.2 : GAME.quadSpread;
+      for (let i = 0; i < 4; i++) {
+        const ang = base - spread * 1.5 + i * spread;
+        const f = forwardFromAngle(ang);
+        const face = tank.angle;
+        tank.angle = ang;
+        const p = this.safeForwardPoint(tank, GAME.tankRadius + 6, GAME.bulletRadius);
+        tank.angle = face;
+        this.bullets.push({
+          id: this.nextBulletId++,
+          ownerId: tank.id,
+          x: p.x,
+          y: p.y,
+          vx: f.x * this.scaleSpeed(tank, GAME.bulletSpeed),
+          vy: f.y * this.scaleSpeed(tank, GAME.bulletSpeed),
+          bounces: 0,
+          kind: 'normal',
+          life: 8,
+          radius: GAME.bulletRadius,
+        });
+      }
+      this.addMuzzleFx(tank);
+      this.addFx('burst', tank.x, tank.y, 38, tank.colorIndex, 0.35);
+      this.clearWeapon(tank);
+      tank.fireCooldown = 0.35;
+      return;
+    }
+
+    if (tank.weapon === 'umbrella') {
+      this.announceSkill(tank, 'umbrella');
+      tank.umbrellaPlus = tank.weaponPlus;
+      tank.umbrellaTime = this.scaleDuration(tank, GAME.umbrellaDurationSec);
+      this.addFx('shield', tank.x, tank.y, GAME.tankRadius + 16, tank.colorIndex, 0.5);
+      this.clearWeapon(tank);
+      tank.fireCooldown = 0.25;
+      return;
+    }
+
+    if (tank.weapon === 'vortex') {
+      this.announceSkill(tank, 'vortex');
+      const radius = this.scaleRadius(tank, GAME.vortexRadius);
+      const duration = this.scaleDuration(tank, GAME.vortexFreezeSec);
+      this.addFx('freeze', tank.x, tank.y, radius, tank.colorIndex, 0.5);
+      for (const other of this.tanks.values()) {
+        if (!other.alive || this.isAlly(tank, other)) continue;
+        if (circlesOverlap(tank.x, tank.y, radius, other.x, other.y, GAME.tankRadius)) {
+          const dx = tank.x - other.x;
+          const dy = tank.y - other.y;
+          const d = Math.hypot(dx, dy) || 1;
+          const pull = this.scaleDist(tank, 36);
+          const resolved = resolveCircleWalls(
+            other.x + (dx / d) * pull,
+            other.y + (dy / d) * pull,
+            GAME.tankRadius + 6,
+            this.maze.walls,
+          );
+          other.x = resolved.x;
+          other.y = resolved.y;
+          other.freezeTime = Math.max(other.freezeTime, duration);
+        }
+      }
+      this.clearWeapon(tank);
+      tank.fireCooldown = 0.3;
+      return;
+    }
+
+    if (tank.weapon === 'xsplit') {
+      this.announceSkill(tank, 'xsplit');
+      const f = forwardFromAngle(tank.angle);
+      const radius = 5;
+      const p = this.safeForwardPoint(tank, GAME.tankRadius + radius + 2, radius);
+      this.bullets.push({
+        id: this.nextBulletId++,
+        ownerId: tank.id,
+        x: p.x,
+        y: p.y,
+        vx: f.x * this.scaleSpeed(tank, GAME.bulletSpeed),
+        vy: f.y * this.scaleSpeed(tank, GAME.bulletSpeed),
+        bounces: 0,
+        kind: 'xsplit',
+        life: 10,
+        radius,
+        splitCount: tank.weaponPlus ? 5 : 3,
+      });
+      this.addMuzzleFx(tank);
+      this.clearWeapon(tank);
+      tank.fireCooldown = 0.3;
+      return;
+    }
+
+    if (tank.weapon === 'yard') {
+      this.announceSkill(tank, 'yard');
+      const count = this.scaleCount(tank, GAME.yardMineCount);
+      for (let i = 0; i < count; i++) {
+        const t = count > 1 ? i / (count - 1) - 0.5 : 0;
+        const ang = tank.angle + Math.PI + t * 0.9;
+        const f = forwardFromAngle(ang);
+        const mx = tank.x + f.x * (GAME.tankRadius + 10);
+        const my = tank.y + f.y * (GAME.tankRadius + 10);
+        this.mines.push({
+          id: this.nextMineId++,
+          ownerId: tank.id,
+          x: mx,
+          y: my,
+          armed: false,
+          armTimer: GAME.mineArmDelaySec,
+          triggered: false,
+          triggerTimer: 0,
+          visible: true,
+        });
+      }
+      this.addFx('booby', tank.x, tank.y, 24, tank.colorIndex, 0.45);
+      this.clearWeapon(tank);
+      tank.fireCooldown = 0.35;
     }
   }
 
@@ -807,6 +1114,7 @@ export class GameSim {
 
       for (const other of this.tanks.values()) {
         if (!other.alive || this.isAlly(tank, other)) continue;
+        if (other.invisTime > 0) continue;
         if (!circlesOverlap(x, y, 5, other.x, other.y, GAME.tankRadius)) continue;
         pushSeg(other.x, other.y, true);
         if (other.shieldTime > 0) return;
@@ -932,6 +1240,29 @@ export class GameSim {
           bullet.vy = bounced.vy;
           bullet.bounces += 1;
           events.push({ type: 'bounce', bulletId: bullet.id });
+          if (bullet.kind === 'xsplit' && bullet.bounces === 1) {
+            const count = bullet.splitCount ?? 3;
+            const baseAng = Math.atan2(bullet.vy, bullet.vx);
+            for (let j = 0; j < count; j++) {
+              const ang =
+                count > 1 ? baseAng - 0.35 + (j / (count - 1)) * 0.7 : baseAng;
+              const f = forwardFromAngle(ang);
+              this.bullets.push({
+                id: this.nextBulletId++,
+                ownerId: bullet.ownerId,
+                x: bullet.x,
+                y: bullet.y,
+                vx: f.x * GAME.bulletSpeed * 0.95,
+                vy: f.y * GAME.bulletSpeed * 0.95,
+                bounces: 0,
+                kind: 'shrapnel',
+                life: 1.2,
+                radius: 3.5,
+              });
+            }
+            alive = false;
+            break;
+          }
           if (bullet.bounces > GAME.maxBulletBounces) {
             alive = false;
             break;
@@ -967,10 +1298,37 @@ export class GameSim {
           ) {
             continue;
           }
+          if (tank.invisTime > 0 && tank.id !== bullet.ownerId) {
+            continue;
+          }
+          if (tank.umbrellaTime > 0 && tank.id !== bullet.ownerId) {
+            const toBullet = Math.atan2(bullet.y - tank.y, bullet.x - tank.x);
+            let diff = toBullet - tank.angle;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            const arc = tank.umbrellaPlus ? GAME.umbrellaArcRad * 1.15 : GAME.umbrellaArcRad;
+            if (Math.abs(diff) < arc / 2) {
+              bullet.vx *= -1;
+              bullet.vy *= -1;
+              bullet.bounces += 1;
+              break;
+            }
+          }
           if (tank.shieldTime > 0) {
             bullet.vx *= -1;
             bullet.vy *= -1;
             bullet.bounces += 1;
+            break;
+          }
+          if (bullet.kind === 'pierce') {
+            tank.alive = false;
+            events.push({ type: 'hit', bulletId: bullet.id, tankId: tank.id });
+            const left = (bullet.hitsLeft ?? 1) - 1;
+            if (left > 0) {
+              bullet.hitsLeft = left;
+            } else {
+              alive = false;
+            }
             break;
           }
           tank.alive = false;

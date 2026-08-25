@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GAME, type WeaponKind } from '@tanktrouble/shared';
+import { GAME, skillLetter, type SkillId, type WeaponKind } from '@tanktrouble/shared';
 
 /** Classic Tank Trouble–style tank with weapon-dependent attachments. */
 export class TankView {
@@ -11,10 +11,12 @@ export class TankView {
   private readonly aiTag: Phaser.GameObjects.Text;
   private readonly colorIndex: number;
   private lastWeapon: WeaponKind = 'default';
+  private lastWeaponPlus = false;
   private lastShield = false;
   private lastBot = false;
   private lastTurbo = false;
   private lastFreeze = false;
+  private lastUmbrella = false;
 
   constructor(scene: Phaser.Scene, colorIndex: number) {
     this.colorIndex = colorIndex;
@@ -62,31 +64,39 @@ export class TankView {
     isBot = false,
     turboTime = 0,
     freezeTime = 0,
+    weaponPlus = false,
+    invisTime = 0,
+    umbrellaTime = 0,
   ): void {
     this.body.setPosition(x, y);
     this.body.setRotation(angle);
     this.badge.setRotation(-angle);
     this.aiTag.setRotation(-angle);
-    this.body.setAlpha(alive ? (freezeTime > 0 ? 0.65 : 1) : 0.2);
+    const ghost = invisTime > 0;
+    this.body.setAlpha(alive ? (freezeTime > 0 ? 0.65 : ghost ? 0.35 : 1) : 0.2);
     this.aiTag.setVisible(alive && isBot);
 
     const hasShield = alive && shieldTime > 0;
     const hasTurbo = alive && turboTime > 0;
     const hasFreeze = alive && freezeTime > 0;
-    if (weapon !== this.lastWeapon || isBot !== this.lastBot) {
+    const hasUmbrella = alive && umbrellaTime > 0;
+    if (weapon !== this.lastWeapon || isBot !== this.lastBot || weaponPlus !== this.lastWeaponPlus) {
       this.lastWeapon = weapon;
+      this.lastWeaponPlus = weaponPlus;
       this.lastBot = isBot;
-      this.drawGear(weapon);
+      this.drawGear(weapon, weaponPlus);
     }
 
     if (
       hasShield !== this.lastShield ||
       hasTurbo !== this.lastTurbo ||
-      hasFreeze !== this.lastFreeze
+      hasFreeze !== this.lastFreeze ||
+      hasUmbrella !== (this.lastUmbrella ?? false)
     ) {
       this.lastShield = hasShield;
       this.lastTurbo = hasTurbo;
       this.lastFreeze = hasFreeze;
+      this.lastUmbrella = hasUmbrella;
       this.shieldRing.clear();
       if (hasShield) {
         this.shieldRing.lineStyle(3, 0x80deea, 0.9);
@@ -101,6 +111,19 @@ export class TankView {
       if (hasFreeze) {
         this.shieldRing.lineStyle(3, 0x82b1ff, 0.9);
         this.shieldRing.strokeCircle(0, 0, GAME.tankRadius + 9);
+      }
+      if (hasUmbrella) {
+        this.shieldRing.lineStyle(2, 0x4dd0e1, 0.85);
+        this.shieldRing.strokeCircle(0, 0, GAME.tankRadius + 12);
+        this.shieldRing.fillStyle(0x4dd0e1, 0.12);
+        this.shieldRing.fillTriangle(
+          GAME.tankRadius + 8,
+          0,
+          -GAME.tankRadius,
+          -GAME.tankRadius,
+          -GAME.tankRadius,
+          GAME.tankRadius,
+        );
       }
     }
   }
@@ -131,28 +154,13 @@ export class TankView {
     g.fillRoundedRect(10, -2, 12, 4, 1);
   }
 
-  private drawGear(weapon: WeaponKind): void {
+  private drawGear(weapon: WeaponKind, weaponPlus: boolean): void {
     const g = this.gear;
     g.clear();
 
-    const labels: Partial<Record<WeaponKind, string>> = {
-      laser: 'L',
-      shotgun: 'S',
-      gatling: 'G',
-      homing: 'H',
-      booby: 'B',
-      frag: 'F',
-      deathray: 'D',
-      freeze: 'Z',
-      blink: 'W',
-      emp: 'E',
-      airstrike: 'A',
-      cannon: 'C',
-      nova: 'N',
-      rail: 'R',
-    };
     if (weapon !== 'default' && weapon !== 'turbo') {
-      this.badge.setText(labels[weapon] ?? '?');
+      const letter = skillLetter(weapon as SkillId);
+      this.badge.setText(weaponPlus ? `${letter}+` : letter);
       this.badge.setVisible(true);
     } else {
       this.badge.setVisible(false);

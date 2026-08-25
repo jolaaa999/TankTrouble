@@ -1,5 +1,16 @@
 export { VERSION, GAME, PICKUP_POOL, CLASSIC_MATCH, MEGA_MATCH, mazeSizeForRound } from './config.js';
-export type { WeaponKind, PickupKind, MatchMode, MatchConfig } from './config.js';
+export type { MatchMode, MatchConfig } from './config.js';
+export type { SkillId, WeaponKind, PickupKind } from './skills.js';
+export {
+  SKILLS,
+  SKILL_IDS,
+  parsePickup,
+  pickupKind,
+  skillLetter,
+  pickupLetter,
+  skillDisplayLabel,
+  pickupDisplayLabel,
+} from './skills.js';
 export { SKILL_LABELS, skillLabel } from './skillLabels.js';
 export { Vec2 } from './math/Vec2.js';
 export { createRng } from './maze/rng.js';

@@ -1,4 +1,4 @@
-export const VERSION = '0.2.8';
+export const VERSION = '0.2.9';
 
 export const GAME = {
   tickHz: 30,
@@ -80,6 +80,29 @@ export const GAME = {
   novaShrapnel: 16,
   railSpeed: 520,
   railLife: 1.4,
+  dashDistance: 90,
+  knockbackRadius: 100,
+  knockbackForce: 55,
+  magnetRadius: 110,
+  magnetPull: 70,
+  invisDurationSec: 2.2,
+  umbrellaDurationSec: 4.5,
+  umbrellaArcRad: 1.35,
+  vortexRadius: 95,
+  vortexFreezeSec: 1.0,
+  yardMineCount: 5,
+  quadSpread: 0.28,
+  pierceHits: 2,
+  pierceHitsPlus: 3,
+  plusRadiusMul: 1.45,
+  plusDurationMul: 1.6,
+  plusCountMul: 1.5,
+  plusDistMul: 1.35,
+  plusSpeedMul: 1.2,
+  plusShieldDurationSec: 9.5,
+  plusTurboDurationSec: 7.5,
+  plusTurboSpeedMul: 1.85,
+  plusTurboTurnMul: 1.5,
 } as const;
 
 export type MatchMode = 'classic' | 'mega';
@@ -111,45 +134,8 @@ export const MEGA_MATCH: MatchConfig = {
   scalingMaps: true,
 };
 
-export type WeaponKind =
-  | 'default'
-  | 'laser'
-  | 'shotgun'
-  | 'gatling'
-  | 'homing'
-  | 'booby'
-  | 'frag'
-  | 'deathray'
-  | 'turbo'
-  | 'freeze'
-  | 'blink'
-  | 'emp'
-  | 'airstrike'
-  | 'cannon'
-  | 'nova'
-  | 'rail';
-
-/** Pickups that appear on the map (shield/turbo apply immediately). */
-export type PickupKind = WeaponKind | 'shield';
-
-export const PICKUP_POOL: readonly PickupKind[] = [
-  'laser',
-  'shotgun',
-  'gatling',
-  'homing',
-  'booby',
-  'frag',
-  'deathray',
-  'shield',
-  'turbo',
-  'freeze',
-  'blink',
-  'emp',
-  'airstrike',
-  'cannon',
-  'nova',
-  'rail',
-] as const;
+export type { SkillId, WeaponKind, PickupKind } from './skills.js';
+export { PICKUP_POOL, SKILLS, SKILL_IDS } from './skills.js';
 
 export function mazeSizeForRound(roundIndex: number, scaling: boolean): {
   cols: number;

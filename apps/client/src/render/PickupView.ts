@@ -1,45 +1,11 @@
 import Phaser from 'phaser';
-import { GAME, type PickupKind } from '@tanktrouble/shared';
+import { GAME, SKILLS, pickupLetter, parsePickup, type PickupKind } from '@tanktrouble/shared';
 
-const LABELS: Record<PickupKind, string> = {
-  default: '?',
-  laser: 'L',
-  shotgun: 'S',
-  gatling: 'G',
-  homing: 'H',
-  booby: 'B',
-  frag: 'F',
-  deathray: 'D',
-  shield: '+',
-  turbo: 'T',
-  freeze: 'Z',
-  blink: 'W',
-  emp: 'E',
-  airstrike: 'A',
-  cannon: 'C',
-  nova: 'N',
-  rail: 'R',
-};
-
-const COLORS: Record<PickupKind, number> = {
-  default: 0x888888,
-  laser: 0xff1744,
-  shotgun: 0xff9100,
-  gatling: 0x00e676,
-  homing: 0x651fff,
-  booby: 0x795548,
-  frag: 0xffea00,
-  deathray: 0xd500f9,
-  shield: 0x00e5ff,
-  turbo: 0xff6d00,
-  freeze: 0x82b1ff,
-  blink: 0xb2ff59,
-  emp: 0xffd740,
-  airstrike: 0xff5252,
-  cannon: 0x455a64,
-  nova: 0xff4081,
-  rail: 0x18ffff,
-};
+function pickupColor(kind: PickupKind): number {
+  const parsed = parsePickup(kind);
+  if (!parsed) return 0xffffff;
+  return SKILLS[parsed.skillId].color;
+}
 
 export class PickupView {
   readonly root: Phaser.GameObjects.Container;
@@ -47,18 +13,20 @@ export class PickupView {
 
   constructor(scene: Phaser.Scene, kind: PickupKind) {
     const g = scene.add.graphics();
-    const col = COLORS[kind] ?? 0xffffff;
+    const col = pickupColor(kind);
+    const parsed = parsePickup(kind);
+    const isPlus = parsed?.plus ?? false;
     g.fillStyle(0x111111, 0.35);
     g.fillRoundedRect(-16, -16, 32, 32, 4);
-    g.lineStyle(2, 0xffffff, 0.9);
+    g.lineStyle(2, isPlus ? 0xffd54f : 0xffffff, 0.9);
     g.strokeRoundedRect(-15, -15, 30, 30, 4);
     g.fillStyle(col, 1);
     g.fillRoundedRect(-12, -12, 24, 24, 3);
 
     const label = scene.add
-      .text(0, 0, LABELS[kind] ?? '?', {
+      .text(0, 0, pickupLetter(kind), {
         fontFamily: 'Courier New, monospace',
-        fontSize: '16px',
+        fontSize: isPlus ? '13px' : '16px',
         color: '#111',
         fontStyle: 'bold',
       })

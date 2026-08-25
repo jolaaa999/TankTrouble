@@ -263,9 +263,12 @@ export class BattleRoom extends Room<BattleState> {
       ts.turboTime = t.turboTime;
       ts.freezeTime = t.freezeTime;
       ts.weapon = t.weapon;
+      ts.weaponPlus = t.weaponPlus;
       ts.ammo = Number.isFinite(t.ammo) ? t.ammo : 99;
       ts.showLaserSight = t.showLaserSight;
       ts.isBot = t.isBot;
+      ts.invisTime = t.invisTime;
+      ts.umbrellaTime = t.umbrellaTime;
     }
     for (const key of [...this.state.tanks.keys()]) {
       if (!seenTanks.has(key)) this.state.tanks.delete(key);

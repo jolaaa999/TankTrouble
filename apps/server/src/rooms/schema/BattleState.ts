@@ -20,9 +20,12 @@ export class TankState extends Schema {
   @type('number') turboTime = 0;
   @type('number') freezeTime = 0;
   @type('string') weapon = 'default';
+  @type('boolean') weaponPlus = false;
   @type('number') ammo = 0;
   @type('boolean') showLaserSight = false;
   @type('boolean') isBot = false;
+  @type('number') invisTime = 0;
+  @type('number') umbrellaTime = 0;
 }
 
 export class BulletState extends Schema {

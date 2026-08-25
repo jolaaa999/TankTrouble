@@ -19,17 +19,24 @@ export type SimTank = {
   team: number;
   fireCooldown: number;
   weapon: WeaponKind;
+  /** Enhanced variant picked up (`技能名+`). */
+  weaponPlus: boolean;
   ammo: number;
   shieldTime: number;
   turboTime: number;
   freezeTime: number;
+  invisTime: number;
+  umbrellaTime: number;
+  umbrellaPlus: boolean;
+  /** Turbo+ pickup — stronger speed boost while turbo is active. */
+  turboPlus: boolean;
   prevFire: boolean;
   /** Death ray / laser aim visible */
   showLaserSight: boolean;
   isBot: boolean;
 };
 
-export type BulletKind = 'normal' | 'pellet' | 'homing' | 'frag' | 'shrapnel';
+export type BulletKind = 'normal' | 'pellet' | 'homing' | 'frag' | 'shrapnel' | 'pierce' | 'xsplit';
 
 export type SimBullet = {
   id: number;
@@ -42,6 +49,10 @@ export type SimBullet = {
   kind: BulletKind;
   life: number;
   radius: number;
+  /** Pierce shots can hit multiple tanks. */
+  hitsLeft?: number;
+  /** Xsplit fan count after first bounce. */
+  splitCount?: number;
 };
 
 export type SimBeam = {

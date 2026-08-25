@@ -451,6 +451,9 @@ export class GameScene extends Phaser.Scene {
       turboTime?: number;
       freezeTime?: number;
       weapon?: string;
+      weaponPlus?: boolean;
+      invisTime?: number;
+      umbrellaTime?: number;
       isBot?: boolean;
     }[],
   ): void {
@@ -471,6 +474,9 @@ export class GameScene extends Phaser.Scene {
         Boolean(t.isBot),
         t.turboTime ?? 0,
         t.freezeTime ?? 0,
+        Boolean(t.weaponPlus),
+        t.invisTime ?? 0,
+        t.umbrellaTime ?? 0,
       );
     }
     for (const [id, view] of this.tankViews) {
@@ -495,6 +501,9 @@ export class GameScene extends Phaser.Scene {
         turboTime?: number;
         freezeTime?: number;
         weapon?: string;
+        weaponPlus?: boolean;
+        invisTime?: number;
+        umbrellaTime?: number;
         isBot?: boolean;
       }
     >,
@@ -510,6 +519,9 @@ export class GameScene extends Phaser.Scene {
       turboTime?: number;
       freezeTime?: number;
       weapon?: string;
+      weaponPlus?: boolean;
+      invisTime?: number;
+      umbrellaTime?: number;
       isBot?: boolean;
     }[] = [];
     tanks.forEach((t) => list.push(t));
