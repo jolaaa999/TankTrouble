@@ -364,6 +364,7 @@ describe('GameSim', () => {
     const anySim = sim as unknown as {
       tanks: Map<string, { alive: boolean; team: number }>;
       intermissionLeft: number;
+      roundIndex: number;
     };
     for (const t of anySim.tanks.values()) {
       if (t.team === 1) t.alive = false;
@@ -373,5 +374,7 @@ describe('GameSim', () => {
     anySim.intermissionLeft = 0;
     sim.step(1 / GAME.tickHz);
     expect(sim.getSnapshot().mazeCols).toBeGreaterThan(GAME.mazeCols);
+    expect(sim.getSnapshot().mazeCols).toBeLessThanOrEqual(GAME.megaMazeMaxCols);
+    expect(sim.getSnapshot().mazeRows).toBeLessThanOrEqual(GAME.megaMazeMaxRows);
   });
 });

@@ -192,16 +192,22 @@ export class GameScene extends Phaser.Scene {
 
   private layoutFromSim(): void {
     if (!this.sim) return;
-    const maze = this.sim.maze;
-    const w = maze.cols * GAME.cellSize;
-    const h = maze.rows * GAME.cellSize;
-    // Prefer zoom ≥ 1 when possible; only shrink for oversized mega maps
-    const zoom = Math.min(1, (this.scale.width - 32) / w, (this.scale.height - 56) / h);
+    this.applyMazeLayout(this.sim.maze.cols, this.sim.maze.rows);
+    this.mazeView?.draw(this.sim.maze, this.offsetX, this.offsetY);
+  }
+
+  /** Fit maze in view: zoom out if needed and center camera (fixes edge clipping). */
+  private applyMazeLayout(cols: number, rows: number): void {
+    const w = cols * GAME.cellSize;
+    const h = rows * GAME.cellSize;
+    const viewW = this.scale.width;
+    const viewH = this.scale.height;
+    const zoom = Math.min(1, (viewW - 40) / w, (viewH - 64) / h);
+    this.offsetX = 0;
+    this.offsetY = 0;
     this.cameras.main.setZoom(zoom);
     this.cameras.main.setRoundPixels(true);
-    this.offsetX = (this.scale.width / zoom - w) / 2;
-    this.offsetY = (this.scale.height / zoom - h) / 2 + 14 / zoom;
-    this.mazeView?.draw(maze, this.offsetX, this.offsetY);
+    this.cameras.main.centerOn(w / 2, h / 2);
   }
 
   private bindOnline(): void {
@@ -278,14 +284,9 @@ export class GameScene extends Phaser.Scene {
         this.onlineRows = state.mazeRows || GAME.mazeRows;
         const maze = generateMaze(state.seed, this.onlineCols, this.onlineRows);
         this.onlineWalls = maze.walls;
-        const w = maze.cols * GAME.cellSize;
-        const h = maze.rows * GAME.cellSize;
-        const zoom = Math.min(1, (this.scale.width - 32) / w, (this.scale.height - 56) / h);
-        this.cameras.main.setZoom(zoom);
-        this.cameras.main.setRoundPixels(true);
-        this.offsetX = (this.scale.width / zoom - w) / 2;
-        this.offsetY = (this.scale.height / zoom - h) / 2 + 14 / zoom;
+        this.applyMazeLayout(maze.cols, maze.rows);
         this.mazeView?.draw(maze, this.offsetX, this.offsetY);
+        this.tankLerpPos.clear();
       }
 
       if (this.matchMode === 'mega') {

@@ -1,4 +1,4 @@
-export const VERSION = '0.2.4';
+export const VERSION = '0.2.5';
 
 export const GAME = {
   tickHz: 30,
@@ -45,6 +45,9 @@ export const GAME = {
   pickupRadius: 14,
   maxPickups: 3,
   megaMaxPickups: 5,
+  /** Cap mega map growth so it always fits a 1280×800 canvas with margin. */
+  megaMazeMaxCols: 15,
+  megaMazeMaxRows: 10,
   shieldDurationSec: 6,
   laserBounces: 8,
   laserBeamLifeSec: 0.45,
@@ -140,9 +143,9 @@ export function mazeSizeForRound(roundIndex: number, scaling: boolean): {
   rows: number;
 } {
   if (!scaling) return { cols: GAME.mazeCols, rows: GAME.mazeRows };
-  const t = Math.max(0, Math.min(roundIndex - 1, 14));
+  const t = Math.max(0, roundIndex - 1);
   return {
-    cols: GAME.mazeCols + Math.floor(t * 1.25),
-    rows: GAME.mazeRows + Math.floor(t * 0.85),
+    cols: Math.min(GAME.megaMazeMaxCols, GAME.mazeCols + Math.min(4, t)),
+    rows: Math.min(GAME.megaMazeMaxRows, GAME.mazeRows + Math.min(3, Math.floor(t * 0.75))),
   };
 }
