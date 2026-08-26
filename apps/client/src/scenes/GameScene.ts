@@ -109,7 +109,6 @@ export class GameScene extends Phaser.Scene {
   private onlineRows = -1;
   private onlineWalls: { x1: number; y1: number; x2: number; y2: number; kind: 'h' | 'v' }[] = [];
   private onlineCache: OnlineStateCache | null = null;
-  private predictedSelf: TankMotionState | null = null;
   private statusText: Phaser.GameObjects.Text | null = null;
   private scoreText: Phaser.GameObjects.Text | null = null;
   private keys!: {
@@ -125,7 +124,7 @@ export class GameScene extends Phaser.Scene {
   private readonly audio = getGameAudio();
   private gameChat: GameChat | null = null;
   private chatBubbles: ChatBubbles | null = null;
-  /** Local sim at 60Hz for snappy no-inertia feel; online stays server 30Hz. */
+  /** Local / online prediction both use 60Hz fixed steps. */
   private readonly fixedDt = 1 / 60;
 
   constructor() {
@@ -155,7 +154,6 @@ export class GameScene extends Phaser.Scene {
     this.onlineRows = -1;
     this.onlineWalls = [];
     this.onlineCache = null;
-    this.predictedSelf = null;
     this.simAcc = 0;
     this.lastInputSentAt = 0;
     this.lastInputKey = '';
@@ -453,7 +451,6 @@ export class GameScene extends Phaser.Scene {
         this.onlineWalls = maze.walls;
         this.applyMazeLayout(maze.cols, maze.rows);
         this.mazeView?.draw(maze, this.offsetX, this.offsetY);
-        this.predictedSelf = null;
       }
 
       if (this.matchMode === 'mega') {
@@ -515,10 +512,6 @@ export class GameScene extends Phaser.Scene {
         fx,
       };
 
-      const me = tanks.find((t) => t.id === this.sessionId);
-      if (me) this.reconcilePredictedSelf(me);
-      else this.predictedSelf = null;
-
       const tankList: { id: string; x: number; y: number; alive: boolean }[] = tanks.map((t) => ({
         id: t.id,
         x: t.x,
@@ -572,40 +565,39 @@ export class GameScene extends Phaser.Scene {
     return Math.min(1.25, (performance.now() - this.onlineCache.receivedAt) / tickMs);
   }
 
-  private reconcilePredictedSelf(serverMe: OnlineTankSnap): void {
-    if (!this.predictedSelf) {
-      this.predictedSelf = {
-        x: serverMe.x,
-        y: serverMe.y,
-        angle: serverMe.angle,
-        freezeTime: serverMe.freezeTime,
-        turboTime: serverMe.turboTime,
-        turboPlus: false,
-      };
-      return;
+  /** Extrapolate local tank from last server snapshot + current input (no rubber-band). */
+  private extrapolateSelfTank(serverMe: OnlineTankSnap): { x: number; y: number; angle: number } {
+    const motion: TankMotionState = {
+      x: serverMe.x,
+      y: serverMe.y,
+      angle: serverMe.angle,
+      freezeTime: serverMe.freezeTime,
+      turboTime: serverMe.turboTime,
+      turboPlus: false,
+    };
+    if (!serverMe.alive || serverMe.freezeTime > 0 || this.onlineWalls.length === 0) {
+      return motion;
     }
-    const err = Math.hypot(this.predictedSelf.x - serverMe.x, this.predictedSelf.y - serverMe.y);
-    if (err > 28) {
-      this.predictedSelf.x = serverMe.x;
-      this.predictedSelf.y = serverMe.y;
-      this.predictedSelf.angle = serverMe.angle;
-    } else if (err > 1.2) {
-      const k = 0.45;
-      this.predictedSelf.x += (serverMe.x - this.predictedSelf.x) * k;
-      this.predictedSelf.y += (serverMe.y - this.predictedSelf.y) * k;
-      this.predictedSelf.angle = this.lerpAngle(this.predictedSelf.angle, serverMe.angle, k);
-    }
-    this.predictedSelf.freezeTime = serverMe.freezeTime;
-    this.predictedSelf.turboTime = serverMe.turboTime;
-  }
 
-  private updateOnlinePrediction(frameDt: number): void {
-    if (!this.predictedSelf || !this.onlineCache || this.matchOver) return;
-    const me = this.onlineCache.tanks.find((t) => t.id === this.sessionId);
-    if (!me?.alive || this.onlineWalls.length === 0) return;
-    this.predictedSelf.freezeTime = me.freezeTime;
-    this.predictedSelf.turboTime = me.turboTime;
-    stepTankMotion(this.predictedSelf, this.readKeys(this.keys.p1), this.onlineWalls, frameDt);
+    const snap = this.onlineCache;
+    const elapsed = Math.min(
+      0.08,
+      snap ? (performance.now() - snap.receivedAt) / 1000 : 0,
+    );
+    if (elapsed <= 0) return motion;
+
+    const input = this.readKeys(this.keys.p1);
+    const steeringLocked = serverMe.weapon === 'homing';
+    const step = 1 / GAME.tickHz;
+    let left = elapsed;
+    while (left >= step) {
+      stepTankMotion(motion, input, this.onlineWalls, step, steeringLocked);
+      left -= step;
+    }
+    if (left > 1e-5) {
+      stepTankMotion(motion, input, this.onlineWalls, left, steeringLocked);
+    }
+    return motion;
   }
 
   private lerpAngle(from: number, to: number, t: number): number {
@@ -621,13 +613,9 @@ export class GameScene extends Phaser.Scene {
     const alpha = this.onlineInterpAlpha();
     const tickSec = 1 / GAME.tickHz;
     return snap.tanks.map((t) => {
-      if (t.id === this.sessionId && this.predictedSelf) {
-        return {
-          ...t,
-          x: this.predictedSelf.x,
-          y: this.predictedSelf.y,
-          angle: this.predictedSelf.angle,
-        };
+      if (t.id === this.sessionId) {
+        const pos = this.extrapolateSelfTank(t);
+        return { ...t, x: pos.x, y: pos.y, angle: pos.angle };
       }
       const prev = snap.prevTanks.get(t.id);
       if (!prev) return t;
@@ -689,9 +677,7 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'local') {
       this.updateLocal(Math.min(0.05, dtMs / 1000));
     } else {
-      const frameDt = Math.min(0.05, dtMs / 1000);
       this.updateOnlineInput();
-      this.updateOnlinePrediction(frameDt);
       this.renderOnlineFrame();
     }
     this.updateChatBubblePositions();
@@ -790,9 +776,10 @@ export class GameScene extends Phaser.Scene {
     const keys = this.readKeys(this.keys.p1);
     const key = `${keys.left?1:0}${keys.right?1:0}${keys.forward?1:0}${keys.back?1:0}${keys.fire?1:0}`;
     const now = performance.now();
-    const active = keys.left || keys.right || keys.forward || keys.back || keys.fire;
-    const minGap = active ? 16 : 40;
-    if (key === this.lastInputKey && now - this.lastInputSentAt < minGap) return;
+    const moving = keys.forward || keys.back;
+    const turning = keys.left || keys.right;
+    const minGap = moving || turning ? 0 : keys.fire ? 16 : 40;
+    if (key === this.lastInputKey && minGap > 0 && now - this.lastInputSentAt < minGap) return;
     this.lastInputKey = key;
     this.lastInputSentAt = now;
     this.seq += 1;
