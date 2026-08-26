@@ -1,73 +1,12 @@
 import { GAME } from '../config.js';
-import type { MazeData, WallSegment } from '../types.js';
+import type { MazeData } from '../types.js';
+import {
+  buildDefaultSpawns,
+  buildWallSegments,
+} from './mazeLayout.js';
 import { createRng } from './rng.js';
 
-function buildWallSegments(
-  cols: number,
-  rows: number,
-  hWalls: boolean[][],
-  vWalls: boolean[][],
-  cell: number,
-): WallSegment[] {
-  const walls: WallSegment[] = [];
-  const W = cols * cell;
-  const H = rows * cell;
-
-  walls.push({ x1: 0, y1: 0, x2: W, y2: 0, kind: 'h' });
-  walls.push({ x1: 0, y1: H, x2: W, y2: H, kind: 'h' });
-  walls.push({ x1: 0, y1: 0, x2: 0, y2: H, kind: 'v' });
-  walls.push({ x1: W, y1: 0, x2: W, y2: H, kind: 'v' });
-
-  for (let r = 0; r <= rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      if (hWalls[r]![c]) {
-        const y = r * cell;
-        const x1 = c * cell;
-        walls.push({ x1, y1: y, x2: x1 + cell, y2: y, kind: 'h' });
-      }
-    }
-  }
-
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c <= cols; c++) {
-      if (vWalls[r]![c]) {
-        const x = c * cell;
-        const y1 = r * cell;
-        walls.push({ x1: x, y1, x2: x, y2: y1 + cell, kind: 'v' });
-      }
-    }
-  }
-
-  return walls;
-}
-
-function cellCenter(c: number, r: number, cell: number): { x: number; y: number } {
-  return { x: c * cell + cell / 2, y: r * cell + cell / 2 };
-}
-
-function buildSpawns(cols: number, rows: number, cell: number): { x: number; y: number }[] {
-  const midC = Math.floor(cols / 2);
-  const midR = Math.floor(rows / 2);
-  const points = [
-    { c: 0, r: 0 },
-    { c: cols - 1, r: 0 },
-    { c: 0, r: rows - 1 },
-    { c: cols - 1, r: rows - 1 },
-    { c: midC, r: 0 },
-    { c: midC, r: rows - 1 },
-    { c: 0, r: midR },
-    { c: cols - 1, r: midR },
-  ];
-  const seen = new Set<string>();
-  const spawns: { x: number; y: number }[] = [];
-  for (const p of points) {
-    const key = `${p.c},${p.r}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    spawns.push(cellCenter(p.c, p.r, cell));
-  }
-  return spawns;
-}
+export { buildWallSegments, buildDefaultSpawns, emptyWallGrid } from './mazeLayout.js';
 
 /**
  * Recursive backtracker maze. hWalls[r][c] = wall on top edge of cell (r,c).
@@ -143,7 +82,7 @@ export function generateMaze(
   }
 
   const cell = GAME.cellSize;
-  const spawns = buildSpawns(cols, rows, cell);
+  const spawns = buildDefaultSpawns(cols, rows, cell);
   const walls = buildWallSegments(cols, rows, hWalls, vWalls, cell);
 
   return { seed, cols, rows, hWalls, vWalls, spawns, walls };

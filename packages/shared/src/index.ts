@@ -15,6 +15,18 @@ export { SKILL_LABELS, skillLabel } from './skillLabels.js';
 export { Vec2 } from './math/Vec2.js';
 export { createRng } from './maze/rng.js';
 export { generateMaze } from './maze/generateMaze.js';
+export {
+  buildMazeFromLayout,
+  buildDefaultSpawns,
+  buildWallSegments,
+  emptyWallGrid,
+  layoutFromMazeData,
+  parseCustomMazeLayout,
+  serializeCustomMazeLayout,
+  validateCustomMazeLayout,
+  MAZE_EDITOR_LIMITS,
+} from './maze/mazeLayout.js';
+export type { CustomMazeLayout } from './maze/mazeLayout.js';
 export { shuffleWithSeed } from './maze/shuffle.js';
 export { GameSim } from './sim/GameSim.js';
 export type { GameSimOptions } from './sim/GameSim.js';

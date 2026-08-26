@@ -9,6 +9,7 @@ import {
 } from '../config.js';
 import { parsePickup, SKILLS } from '../skills.js';
 import { generateMaze } from '../maze/generateMaze.js';
+import { buildMazeFromLayout, type CustomMazeLayout } from '../maze/mazeLayout.js';
 import { createRng } from '../maze/rng.js';
 import { shuffleWithSeed } from '../maze/shuffle.js';
 import type {
@@ -85,6 +86,8 @@ function weaponAmmo(kind: WeaponKind, plus: boolean): number {
 export type GameSimOptions = {
   fillBots?: boolean;
   match?: Partial<MatchConfig>;
+  /** Fixed custom maze from the map editor (same layout every round). */
+  customMaze?: CustomMazeLayout;
 };
 
 export class GameSim {
@@ -121,6 +124,7 @@ export class GameSim {
   private roundIndex = 1;
   private rng: () => number;
   private elapsed = 0;
+  private customMaze: CustomMazeLayout | null = null;
 
   constructor(seed: number, playerIds: string[], opts?: GameSimOptions) {
     this.match = { ...CLASSIC_MATCH, ...opts?.match };
@@ -140,7 +144,12 @@ export class GameSim {
       this.inputs.set(id, emptyInput());
     });
     const size = mazeSizeForRound(1, this.match.scalingMaps);
-    this.maze = generateMaze(seed, size.cols, size.rows);
+    if (opts?.customMaze) {
+      this.customMaze = opts.customMaze;
+      this.maze = buildMazeFromLayout(opts.customMaze, seed);
+    } else {
+      this.maze = generateMaze(seed, size.cols, size.rows);
+    }
     this.spawnTanks(seed);
     this.pickupTimer = GAME.pickupSpawnIntervalSec * 0.4;
   }
@@ -283,8 +292,12 @@ export class GameSim {
     const seed = (this.rng() * 1e9) | 0;
     this.rng = createRng(seed);
     this.roundIndex += 1;
-    const size = mazeSizeForRound(this.roundIndex, this.match.scalingMaps);
-    this.maze = generateMaze(seed, size.cols, size.rows);
+    if (this.customMaze) {
+      this.maze = buildMazeFromLayout(this.customMaze, seed);
+    } else {
+      const size = mazeSizeForRound(this.roundIndex, this.match.scalingMaps);
+      this.maze = generateMaze(seed, size.cols, size.rows);
+    }
     this.bullets = [];
     this.beams = [];
     this.pickups = [];

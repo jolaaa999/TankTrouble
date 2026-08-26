@@ -8,6 +8,7 @@ import {
   type InputMessage,
   type MatchMode,
   type PickupKind,
+  type CustomMazeLayout,
   type WeaponKind,
 } from '@tanktrouble/shared';
 import { MazeView } from '../render/MazeView';
@@ -23,6 +24,7 @@ export type GameSceneData =
       fillBots?: boolean;
       matchMode?: MatchMode;
       rosterSize?: number;
+      customMaze?: CustomMazeLayout;
     }
   | { mode: 'online'; room: Room; sessionId: string };
 
@@ -32,6 +34,7 @@ export class GameScene extends Phaser.Scene {
   private fillBots = false;
   private matchMode: MatchMode = 'classic';
   private rosterSize = 4;
+  private customMaze: CustomMazeLayout | undefined;
   private scoreToWin: number = GAME.scoreToWin;
   private sim: GameSim | null = null;
   private mazeView: MazeView | null = null;
@@ -83,6 +86,7 @@ export class GameScene extends Phaser.Scene {
       data.mode === 'local'
         ? data.rosterSize ?? (this.matchMode === 'mega' ? 8 : 4)
         : 4;
+    this.customMaze = data.mode === 'local' ? data.customMaze : undefined;
     this.scoreToWin =
       this.matchMode === 'mega' ? MEGA_MATCH.scoreToWin : CLASSIC_MATCH.scoreToWin;
     this.matchOver = false;
@@ -157,16 +161,19 @@ export class GameScene extends Phaser.Scene {
           ...preset,
           maxPlayers: this.rosterSize,
           fillWithBots: this.fillBots,
+          scalingMaps: this.customMaze ? false : preset.scalingMaps,
         },
+        customMaze: this.customMaze,
       });
       this.layoutFromSim();
       const teamHint = this.matchMode === 'mega' ? ' · 红蓝对阵 · 地图逐局变大' : '';
+      const customHint = this.customMaze ? ` · 自定义地图「${this.customMaze.name}」` : '';
       this.statusText.setText(
         this.withBots
-          ? `单人+AI · WASD · ${this.rosterSize} 人席 · 先到 ${this.scoreToWin}${teamHint}`
+          ? `单人+AI · WASD · ${this.rosterSize} 人席 · 先到 ${this.scoreToWin}${teamHint}${customHint}`
           : this.fillBots
-            ? `本地 · AI 补齐至 ${this.rosterSize} · 先到 ${this.scoreToWin}${teamHint}`
-            : `本地双人 · 先到 ${this.scoreToWin}`,
+            ? `本地 · AI 补齐至 ${this.rosterSize} · 先到 ${this.scoreToWin}${teamHint}${customHint}`
+            : `本地双人 · 先到 ${this.scoreToWin}${customHint}`,
       );
     } else {
       this.statusText.setText('联机对战');

@@ -46,7 +46,7 @@ export default defineConfig({
       {
         text: '在线演示',
         items: [
-          { text: 'V0.2.9 当前版本', link: '/demo/play' },
+          { text: 'V0.3.0 当前版本', link: '/demo/play' },
           { text: '版本对比', link: '/demo/versions' },
         ],
       },
@@ -57,6 +57,7 @@ export default defineConfig({
           { text: '技能大全 A–Z', link: '/game/skills' },
           { text: '技能速查表', link: '/game/skill-grid' },
           { text: '游戏模式', link: '/game/modes' },
+          { text: '地图编辑器', link: '/game/map-editor' },
         ],
       },
       {

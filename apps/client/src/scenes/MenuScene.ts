@@ -87,9 +87,12 @@ export class MenuScene extends Phaser.Scene {
     this.makeButton(width / 2, 494, '加入房间', () => {
       this.scene.start('lobby', { action: 'join' });
     });
+    this.makeButton(width / 2, 536, '地图编辑器', () => {
+      this.scene.start('mazeEditor');
+    }, 0x00838f);
 
     this.tipText = this.add
-      .text(width / 2, 545, '', {
+      .text(width / 2, 578, '', {
         fontFamily: 'Segoe UI, sans-serif',
         fontSize: '11px',
         color: '#90a4ae',
@@ -98,8 +101,8 @@ export class MenuScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    this.makeLinkButton(width / 2 - 72, 598, 128, '文档', docsUrl(), 0x5e35b1);
-    this.makeLinkButton(width / 2 + 72, 598, 128, 'GitHub', GITHUB_URL, 0x37474f);
+    this.makeLinkButton(width / 2 - 72, 628, 128, '文档', docsUrl(), 0x5e35b1);
+    this.makeLinkButton(width / 2 + 72, 628, 128, 'GitHub', GITHUB_URL, 0x37474f);
     this.makeFooter(width, height);
 
     this.refreshAiUi();
@@ -261,9 +264,15 @@ export class MenuScene extends Phaser.Scene {
     credit.on('pointerdown', () => openExternal(GITHUB_URL));
   }
 
-  private makeButton(x: number, y: number, label: string, onClick: () => void): void {
+  private makeButton(
+    x: number,
+    y: number,
+    label: string,
+    onClick: () => void,
+    color = 0x2f6fed,
+  ): void {
     const bg = this.add
-      .rectangle(x, y, 240, 44, 0x2f6fed, 1)
+      .rectangle(x, y, 240, 44, color, 1)
       .setInteractive({ useHandCursor: true });
     this.add
       .text(x, y, label, {
@@ -272,8 +281,9 @@ export class MenuScene extends Phaser.Scene {
         color: '#ffffff',
       })
       .setOrigin(0.5);
-    bg.on('pointerover', () => bg.setFillStyle(0x3d7dff));
-    bg.on('pointerout', () => bg.setFillStyle(0x2f6fed));
+    const hover = color === 0x00838f ? 0x00acc1 : 0x3d7dff;
+    bg.on('pointerover', () => bg.setFillStyle(hover));
+    bg.on('pointerout', () => bg.setFillStyle(color));
     bg.on('pointerdown', onClick);
   }
 }

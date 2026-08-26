@@ -1,6 +1,6 @@
 # Tank Trouble 游戏演示
 
-<span class="version-pill">V0.2.9</span> · 当前线上版本
+<span class="version-pill">V0.3.0</span> · 当前线上版本
 
 ## 在线试玩
 
@@ -24,6 +24,7 @@
 
 ## 本版本亮点
 
+- ✅ 迷宫地图编辑器（本地试玩、JSON 导入导出）
 - ✅ 26 字母技能 + 52 种拾取（含加强版）
 - ✅ 反弹弹自伤（反弹后可击杀自己）
 - ✅ 地雷可自踩、破片 / 星爆三角碎片
@@ -39,4 +40,5 @@
 
 - [远程联机](/guide/multiplayer)
 - [技能速查表](/game/skill-grid)
+- [地图编辑器](/game/map-editor)
 - [更新日志](/changelog)
