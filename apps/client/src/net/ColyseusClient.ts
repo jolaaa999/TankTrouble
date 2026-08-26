@@ -55,6 +55,39 @@ export function formatNetError(err: unknown): string {
   }
 }
 
+export function wsToHttp(ws: string): string {
+  return ws.replace(/^ws/i, 'http');
+}
+
+export type BattleRoomInfo = {
+  roomCode: string;
+  mode: 'classic' | 'mega';
+  phase: string;
+  playerCount: number;
+  rosterSize: number;
+  fillWithBots: boolean;
+};
+
+let pendingLobbyRoom: Room | null = null;
+
+export function stashLobbyRoom(room: Room): void {
+  pendingLobbyRoom = room;
+}
+
+export function takeLobbyRoom(): Room | null {
+  const room = pendingLobbyRoom;
+  pendingLobbyRoom = null;
+  return room;
+}
+
+export async function listBattleRooms(): Promise<BattleRoomInfo[]> {
+  const http = wsToHttp(getColyseusUrl());
+  const res = await fetch(`${http}/rooms`, { method: 'GET' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = (await res.json()) as { rooms?: BattleRoomInfo[] };
+  return data.rooms ?? [];
+}
+
 function randomCode(): string {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let out = '';
@@ -119,7 +152,7 @@ export async function joinBattleRoom(roomCode: string): Promise<Room> {
 
 export async function pingServer(): Promise<{ ok: boolean; detail: string }> {
   const ws = getColyseusUrl();
-  const http = ws.replace(/^ws/i, 'http');
+  const http = wsToHttp(ws);
   try {
     const res = await fetch(`${http}/health`, { method: 'GET' });
     if (!res.ok) return { ok: false, detail: `HTTP ${res.status} @ ${http}` };

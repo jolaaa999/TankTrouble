@@ -5,19 +5,20 @@ import {
   getColyseusUrl,
   joinBattleRoom,
   pingServer,
+  takeLobbyRoom,
 } from '../net/ColyseusClient';
 import type { MatchMode } from '@tanktrouble/shared';
 import type { Room } from 'colyseus.js';
 
 type LobbyData = {
-  action: 'create' | 'join';
+  action: 'create' | 'join' | 'joined';
   fillWithBots?: boolean;
   mode?: MatchMode;
   rosterSize?: number;
 };
 
 export class LobbyScene extends Phaser.Scene {
-  private action: 'create' | 'join' = 'create';
+  private action: 'create' | 'join' | 'joined' = 'create';
   private initialFillWithBots = false;
   private initialMode: MatchMode = 'classic';
   private initialRoster = 4;
@@ -51,7 +52,7 @@ export class LobbyScene extends Phaser.Scene {
   async create(): Promise<void> {
     const { width } = this.scale;
     this.add
-      .text(width / 2, 56, this.action === 'create' ? '创建房间' : '加入房间', {
+      .text(width / 2, 56, this.action === 'create' ? '创建房间' : this.action === 'joined' ? '房间等待' : '加入房间', {
         fontFamily: 'Georgia, serif',
         fontSize: '34px',
         color: '#f5f0e6',
@@ -85,6 +86,17 @@ export class LobbyScene extends Phaser.Scene {
       this.infoText.setText(
         `${ping.detail}\n\n好友联机不能用 localhost。\n1) 本机跑游戏服\n2) 用 cloudflared/Fly 得到公网 wss\n3) 打开：你的vercel地址/?ws=wss://公网地址`,
       );
+      return;
+    }
+
+    if (this.action === 'joined') {
+      const room = takeLobbyRoom();
+      if (!room) {
+        this.infoText.setText('加入会话丢失，请从大厅重试');
+        return;
+      }
+      this.room = room;
+      this.bindRoom(room);
       return;
     }
 

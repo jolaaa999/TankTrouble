@@ -3,6 +3,7 @@ import { BootScene } from './scenes/BootScene';
 import { MenuScene } from './scenes/MenuScene';
 import { MazeEditorScene } from './scenes/MazeEditorScene';
 import { GameScene } from './scenes/GameScene';
+import { HallScene } from './scenes/HallScene';
 import { LobbyScene } from './scenes/LobbyScene';
 import { ResultScene } from './scenes/ResultScene';
 
@@ -34,7 +35,7 @@ const config: Phaser.Types.Core.GameConfig = {
   },
   // Skip unused Phaser systems for less overhead
   physics: undefined,
-  scene: [BootScene, MenuScene, MazeEditorScene, LobbyScene, GameScene, ResultScene],
+  scene: [BootScene, MenuScene, MazeEditorScene, HallScene, LobbyScene, GameScene, ResultScene],
   callbacks: {
     postBoot: (game) => {
       const canvas = game.canvas;

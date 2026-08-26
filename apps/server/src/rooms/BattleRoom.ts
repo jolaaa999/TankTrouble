@@ -60,6 +60,7 @@ export class BattleRoom extends Room<BattleState> {
     // Cap room size to roster so joiners get a clear "full" instead of hanging
     this.maxClients = roster;
     this.setMetadata({ roomCode: this.state.roomCode, mode: this.state.mode });
+    this.syncMetadata();
     // Sync snapshots ~30Hz (was default ~20)
     this.setPatchRate(Math.floor(1000 / GAME.tickHz));
     console.log(
@@ -76,6 +77,7 @@ export class BattleRoom extends Room<BattleState> {
     this.onMessage('toggleFillBots', () => {
       if (this.state.phase !== 'waiting') return;
       this.state.fillWithBots = !this.state.fillWithBots;
+      this.syncMetadata();
       this.tryStart();
     });
 
@@ -85,6 +87,7 @@ export class BattleRoom extends Room<BattleState> {
       if (this.state.players.size > size) return;
       this.state.rosterSize = size;
       this.maxClients = size;
+      this.syncMetadata();
       this.tryStart();
     });
 
@@ -119,6 +122,7 @@ export class BattleRoom extends Room<BattleState> {
       this.state.mines.clear();
       this.state.hazards.clear();
       this.state.fx.clear();
+      this.syncMetadata();
     });
 
     this.setSimulationInterval(() => {
@@ -157,6 +161,7 @@ export class BattleRoom extends Room<BattleState> {
     console.log(
       `[battle] join ${this.state.roomCode} ${client.sessionId} (${this.state.players.size}/${this.state.rosterSize})`,
     );
+    this.syncMetadata();
   }
 
   async onLeave(client: Client): Promise<void> {
@@ -175,7 +180,20 @@ export class BattleRoom extends Room<BattleState> {
 
     if (this.state.players.size === 0) {
       this.disconnect();
+    } else {
+      this.syncMetadata();
     }
+  }
+
+  private syncMetadata(): void {
+    this.setMetadata({
+      roomCode: this.state.roomCode,
+      mode: this.state.mode,
+      phase: this.state.phase,
+      playerCount: this.state.players.size,
+      rosterSize: this.state.rosterSize,
+      fillWithBots: this.state.fillWithBots,
+    });
   }
 
   private tryStart(): void {
@@ -215,6 +233,7 @@ export class BattleRoom extends Room<BattleState> {
     this.state.roundIndex = 1;
     this.inputs.clear();
     this.syncFromSim();
+    this.syncMetadata();
     this.broadcast('start', { seed });
   }
 

@@ -88,12 +88,15 @@ export class MenuScene extends Phaser.Scene {
     this.makeButton(width / 2, 494, '加入房间', () => {
       this.scene.start('lobby', { action: 'join' });
     });
-    this.makeButton(width / 2, 536, '地图编辑器', () => {
+    this.makeButton(width / 2, 536, '房间大厅', () => {
+      this.scene.start('hall');
+    }, 0x5e35b1);
+    this.makeButton(width / 2, 578, '地图编辑器', () => {
       this.scene.start('mazeEditor');
     }, 0x00838f);
 
     this.tipText = this.add
-      .text(width / 2, 578, '', {
+      .text(width / 2, 620, '', {
         fontFamily: 'Segoe UI, sans-serif',
         fontSize: '11px',
         color: '#90a4ae',
@@ -102,8 +105,8 @@ export class MenuScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    this.makeLinkButton(width / 2 - 72, 628, 128, '文档', docsUrl(), 0x5e35b1);
-    this.makeLinkButton(width / 2 + 72, 628, 128, 'GitHub', GITHUB_URL, 0x37474f);
+    this.makeLinkButton(width / 2 - 72, 670, 128, '文档', docsUrl(), 0x5e35b1);
+    this.makeLinkButton(width / 2 + 72, 670, 128, 'GitHub', GITHUB_URL, 0x37474f);
     this.makeFooter(width, height);
 
     void getGameAudio().unlock().then(() => getGameAudio().startMenuBgm());
