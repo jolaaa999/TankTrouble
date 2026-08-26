@@ -522,7 +522,7 @@ export class GameScene extends Phaser.Scene {
       };
 
       const me = tanks.find((t) => t.id === this.sessionId);
-      if (me) this.reconcilePredictedSelf(me);
+      if (me) this.syncPredictedSelfFromServer(me);
       else this.predictedSelf = null;
 
       const tankList: { id: string; x: number; y: number; alive: boolean }[] = tanks.map((t) => ({
@@ -580,11 +580,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Soft-correct continuous prediction against server.
-   * Avoid yanking along the move axis while holding W/S (that was the stutter).
+   * Init / buff sync only — no position/angle correction (avoids rubber-band hitch).
+   * Pose is fully client-predicted until next round / death respawn.
    */
-  private reconcilePredictedSelf(serverMe: OnlineTankSnap): void {
-    if (!serverMe.alive) {
+  private syncPredictedSelfFromServer(serverMe: OnlineTankSnap): void {
+    if (!this.predictedSelf || !serverMe.alive) {
       this.predictedSelf = {
         x: serverMe.x,
         y: serverMe.y,
@@ -595,56 +595,8 @@ export class GameScene extends Phaser.Scene {
       };
       return;
     }
-
-    if (!this.predictedSelf) {
-      this.predictedSelf = {
-        x: serverMe.x,
-        y: serverMe.y,
-        angle: serverMe.angle,
-        freezeTime: serverMe.freezeTime,
-        turboTime: serverMe.turboTime,
-        turboPlus: false,
-      };
-      return;
-    }
-
     this.predictedSelf.freezeTime = serverMe.freezeTime;
     this.predictedSelf.turboTime = serverMe.turboTime;
-
-    const dx = serverMe.x - this.predictedSelf.x;
-    const dy = serverMe.y - this.predictedSelf.y;
-    const err = Math.hypot(dx, dy);
-    if (err > 56) {
-      this.predictedSelf.x = serverMe.x;
-      this.predictedSelf.y = serverMe.y;
-      this.predictedSelf.angle = serverMe.angle;
-      return;
-    }
-
-    const keys = this.readKeys(this.keys.p1);
-    const moving = keys.forward || keys.back;
-    if (moving && err < 36) {
-      // Only pull the lateral (sideways) error; keep predicted lead along facing
-      const f = { x: Math.cos(this.predictedSelf.angle), y: Math.sin(this.predictedSelf.angle) };
-      const along = dx * f.x + dy * f.y;
-      const latX = dx - along * f.x;
-      const latY = dy - along * f.y;
-      this.predictedSelf.x += latX * 0.18;
-      this.predictedSelf.y += latY * 0.18;
-      // Never pull backward along facing while driving — that creates the stutter
-      if (along > 0) {
-        this.predictedSelf.x += along * f.x * 0.12;
-        this.predictedSelf.y += along * f.y * 0.12;
-      }
-    } else if (err > 2) {
-      const k = Math.min(0.22, 0.06 + err * 0.004);
-      this.predictedSelf.x += dx * k;
-      this.predictedSelf.y += dy * k;
-    }
-
-    if (!keys.left && !keys.right) {
-      this.predictedSelf.angle = this.lerpAngle(this.predictedSelf.angle, serverMe.angle, 0.2);
-    }
   }
 
   private stepPredictedSelf(frameDt: number): void {
