@@ -4,6 +4,7 @@ import {
   GAME,
   GameSim,
   MEGA_MATCH,
+  sanitizeChatText,
   type InputMessage,
   type MatchMode,
 } from '@tanktrouble/shared';
@@ -36,6 +37,7 @@ export class BattleRoom extends Room<BattleState> {
   private inputs = new Map<string, InputMessage>();
   /** Latches a fire press that arrived between ticks (avoids lost taps). */
   private fireLatch = new Map<string, boolean>();
+  private chatCooldown = new Map<string, number>();
 
   onCreate(options: {
     roomCode?: string;
@@ -99,6 +101,48 @@ export class BattleRoom extends Room<BattleState> {
         this.fireLatch.set(client.sessionId, true);
       }
       this.inputs.set(client.sessionId, message);
+    });
+
+    this.onMessage('chat', (client, message: { text?: string; channel?: string }) => {
+      if (this.state.phase !== 'playing' && this.state.phase !== 'intermission') return;
+      const player = this.state.players.get(client.sessionId);
+      if (!player) return;
+      const text = sanitizeChatText(message?.text ?? '');
+      if (!text) return;
+
+      const now = Date.now();
+      const last = this.chatCooldown.get(client.sessionId) ?? 0;
+      if (now - last < 400) return;
+      this.chatCooldown.set(client.sessionId, now);
+
+      const teamMode = this.state.mode === 'mega';
+      const channel =
+        teamMode && message?.channel === 'team' ? ('team' as const) : ('all' as const);
+      const team = player.team;
+      const fromLabel =
+        teamMode
+          ? team === 0
+            ? `红${(player.colorIndex % 4) + 1}`
+            : `蓝${(player.colorIndex % 4) + 1}`
+          : `P${player.colorIndex + 1}`;
+
+      const payload = {
+        fromId: client.sessionId,
+        fromLabel,
+        team,
+        channel,
+        text,
+        at: now,
+      };
+
+      if (channel === 'team') {
+        for (const c of this.clients) {
+          const p = this.state.players.get(c.sessionId);
+          if (p && p.team === team) c.send('chat', payload);
+        }
+        return;
+      }
+      this.broadcast('chat', payload);
     });
 
     this.onMessage('restart', () => {
@@ -168,6 +212,7 @@ export class BattleRoom extends Room<BattleState> {
     this.state.players.delete(client.sessionId);
     this.inputs.delete(client.sessionId);
     this.fireLatch.delete(client.sessionId);
+    this.chatCooldown.delete(client.sessionId);
     this.state.scores.delete(client.sessionId);
 
     if (

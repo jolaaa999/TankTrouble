@@ -27,6 +27,7 @@ https://tank-trouble-ten.vercel.app/?ws=wss://tanktrouble-server.fly.dev
    - 点 **房间大厅**，在列表中**点击房间**加入，或
    - 点 **加入房间**，手动输入房间码
 4. 所有人按 **R** 准备 → 人数满足后开战
+5. 对战中按 **Enter** 或 **T** 聊天；超多人可切换 **全员 / 阵营** 频道
 
 ## 房间大厅
 

@@ -11,12 +11,16 @@ import {
   type CustomMazeLayout,
   type WeaponKind,
   type SimEvent,
+  formatChatSenderLabel,
+  type ChatChannel,
+  type ChatMessagePayload,
 } from '@tanktrouble/shared';
 import { MazeView } from '../render/MazeView';
 import { TankView } from '../render/TankView';
 import { BulletView } from '../render/BulletView';
 import { MineView, PickupView } from '../render/PickupView';
 import { getGameAudio } from '../audio/GameAudio';
+import { GameChat } from '../ui/GameChat';
 import type { Room } from 'colyseus.js';
 
 export type GameSceneData =
@@ -72,6 +76,7 @@ export class GameScene extends Phaser.Scene {
   private lastScoreKey = '';
   private lastSnapSeed = -1;
   private readonly audio = getGameAudio();
+  private gameChat: GameChat | null = null;
   /** Local sim at 60Hz for snappy no-inertia feel; online stays server 30Hz. */
   private readonly fixedDt = 1 / 60;
 
@@ -176,17 +181,83 @@ export class GameScene extends Phaser.Scene {
       const customHint = this.customMaze ? ` · 自定义地图「${this.customMaze.name}」` : '';
       this.statusText.setText(
         this.withBots
-          ? `单人+AI · WASD · ${this.rosterSize} 人席 · 先到 ${this.scoreToWin}${teamHint}${customHint}`
+          ? `单人+AI · WASD · R 重开 · ${this.rosterSize} 人席 · 先到 ${this.scoreToWin}${teamHint}${customHint}`
           : this.fillBots
             ? `本地 · AI 补齐至 ${this.rosterSize} · 先到 ${this.scoreToWin}${teamHint}${customHint}`
             : `本地双人 · 先到 ${this.scoreToWin}${customHint}`,
       );
+
+      if (this.withBots) {
+        this.input.keyboard?.on('keydown-R', () => this.restartLocalSolo());
+      }
     } else {
       this.statusText.setText('联机对战');
       this.bindOnline();
     }
 
     void this.audio.unlock().then(() => this.audio.startBattleBgm());
+
+    this.gameChat = new GameChat(this, {
+      teamMode: this.matchMode === 'mega',
+      onSend: (text, channel) => this.sendChat(text, channel),
+    });
+  }
+
+  private sendChat(text: string, channel: ChatChannel): void {
+    if (this.mode === 'online' && this.room) {
+      this.room.send('chat', { text, channel });
+      return;
+    }
+    const snap = this.sim?.getSnapshot();
+    const me = snap?.tanks.find((t) => t.id === 'p1');
+    const team = me?.team ?? 0;
+    const payload: ChatMessagePayload = {
+      fromId: 'p1',
+      fromLabel: formatChatSenderLabel({
+        colorIndex: me?.colorIndex ?? 0,
+        team,
+        teamMode: this.matchMode === 'mega',
+        self: true,
+        playerId: 'p1',
+      }),
+      team,
+      channel: this.matchMode === 'mega' ? channel : 'all',
+      text,
+      at: Date.now(),
+    };
+    this.gameChat?.receive(payload);
+  }
+
+  private onChatMessage(payload: ChatMessagePayload): void {
+    const self = this.mode === 'online' && payload.fromId === this.sessionId;
+    this.gameChat?.receive({
+      ...payload,
+      fromLabel: self
+        ? '你'
+        : payload.fromLabel ||
+          formatChatSenderLabel({
+            colorIndex: 0,
+            team: payload.team,
+            teamMode: this.matchMode === 'mega',
+          }),
+    });
+  }
+  /** Solo+AI only: press R to restart the whole match. */
+  private restartLocalSolo(): void {
+    if (this.gameChat?.isInputActive()) return;
+    if (this.mode !== 'local' || !this.withBots || this.matchOver) return;
+    this.scene.start('game', this.localRestartData());
+  }
+
+  private localRestartData(): Extract<GameSceneData, { mode: 'local' }> {
+    return {
+      mode: 'local',
+      withBots: this.withBots,
+      fillBots: this.fillBots,
+      matchMode: this.matchMode,
+      rosterSize: this.rosterSize,
+      customMaze: this.customMaze,
+    };
   }
 
   private layoutFromSim(): void {
@@ -212,6 +283,10 @@ export class GameScene extends Phaser.Scene {
   private bindOnline(): void {
     const room = this.room;
     if (!room) return;
+
+    room.onMessage('chat', (payload: ChatMessagePayload) => {
+      this.onChatMessage(payload);
+    });
 
     const syncFromState = () => {
       const state = room.state as {
@@ -277,6 +352,7 @@ export class GameScene extends Phaser.Scene {
 
       this.scoreToWin = state.scoreToWin || this.scoreToWin;
       this.matchMode = state.mode === 'mega' ? 'mega' : 'classic';
+      this.gameChat?.setTeamMode(this.matchMode === 'mega');
 
       if (
         this.onlineSeed !== state.seed ||
@@ -382,6 +458,15 @@ export class GameScene extends Phaser.Scene {
   private readKeys(
     map: Record<string, Phaser.Input.Keyboard.Key>,
   ): Omit<InputMessage, 'seq'> {
+    if (this.gameChat?.isInputActive()) {
+      return {
+        left: false,
+        right: false,
+        forward: false,
+        back: false,
+        fire: false,
+      };
+    }
     return {
       left: map.left.isDown,
       right: map.right.isDown,
@@ -426,7 +511,8 @@ export class GameScene extends Phaser.Scene {
         `得分！下一小局 ${snap.intermissionLeft.toFixed(1)}s · 地图 #${snap.roundIndex + 1}`,
       );
     } else if (snap.phase === 'playing') {
-      const status = `第 ${snap.roundIndex} 局 · L激光/Z冰冻/W闪现/E电磁/A空袭 · 先到 ${this.scoreToWin}`;
+      const restartHint = this.withBots ? ' · R 重开' : '';
+      const status = `第 ${snap.roundIndex} 局${restartHint} · L激光/Z冰冻/W闪现/E电磁/A空袭 · 先到 ${this.scoreToWin}`;
       if (this.statusText?.text !== status) this.statusText?.setText(status);
     }
 
@@ -449,7 +535,11 @@ export class GameScene extends Phaser.Scene {
           snap.matchWinnerId === 'p1' ? 'P1' : snap.matchWinnerId === 'p2' ? 'P2' : '无人';
         message = `${winner} 先到 ${this.scoreToWin} 分获胜！`;
       }
-      this.scene.start('result', { mode: 'local', message });
+      this.scene.start('result', {
+        mode: 'local',
+        message,
+        restart: this.localRestartData(),
+      });
     }
   }
 
@@ -1023,6 +1113,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   shutdown(): void {
+    this.gameChat?.destroy();
+    this.gameChat = null;
     this.audio.stopBgm();
     this.audio.resetBattleState();
     this.mazeView?.destroy();

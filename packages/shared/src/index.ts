@@ -12,6 +12,14 @@ export {
   pickupDisplayLabel,
 } from './skills.js';
 export { SKILL_LABELS, skillLabel } from './skillLabels.js';
+export {
+  CHAT_MAX_LENGTH,
+  QUICK_CHAT_PHRASES,
+  chatChannelLabel,
+  formatChatSenderLabel,
+  sanitizeChatText,
+} from './chat.js';
+export type { ChatChannel, ChatMessagePayload } from './chat.js';
 export { Vec2 } from './math/Vec2.js';
 export { createRng } from './maze/rng.js';
 export { generateMaze } from './maze/generateMaze.js';
