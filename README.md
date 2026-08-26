@@ -16,8 +16,9 @@
 
 - 击杀对手得 1 分，进入下一小局（新迷宫 + 乱序出生点）
 - 先到 **5 分** 获胜（`GAME.scoreToWin` 可改）
-- 场上彩色方块为可拾取技能，完整说明见 **[技能说明书](docs/skills.md)**
-- 简记：激光 L、散弹 S、加特林 G、追踪 H、地雷 B、破片 F、死光 D、护盾 +、加速 T、冰冻 Z、闪现 W、电磁 E、空袭 A
+- 场上彩色方块为可拾取技能（**A–Z 共 26 种**，各有加强版 `+`）
+- **文档站**：[apps/docs](apps/docs)（VitePress，`pnpm dev:docs` → http://localhost:27493）
+- Markdown 技能说明：[docs/skills.md](docs/skills.md)
 
 ## 远程联机（重要）
 
