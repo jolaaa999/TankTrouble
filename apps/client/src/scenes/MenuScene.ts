@@ -2,6 +2,17 @@ import Phaser from 'phaser';
 import { VERSION, type MatchMode } from '@tanktrouble/shared';
 import { getColyseusUrl, pingServer } from '../net/ColyseusClient';
 
+const GITHUB_URL = 'https://github.com/jolaaa999/TankTrouble';
+
+function docsUrl(): string {
+  if (typeof window === 'undefined') return '/docs/';
+  return `${window.location.origin}/docs/`;
+}
+
+function openExternal(url: string): void {
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
 export class MenuScene extends Phaser.Scene {
   private fillWithBots = false;
   private matchMode: MatchMode = 'classic';
@@ -21,7 +32,7 @@ export class MenuScene extends Phaser.Scene {
   }
 
   create(): void {
-    const { width } = this.scale;
+    const { width, height } = this.scale;
     this.add
       .text(width / 2, 70, 'TANK TROUBLE', {
         fontFamily: 'Georgia, serif',
@@ -31,7 +42,7 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.add
-      .text(width / 2, 112, `v${VERSION} · 激光束 / 新技能 / 超多人`, {
+      .text(width / 2, 112, `v${VERSION} · A–Z 26 技能 · 联机对战`, {
         fontFamily: 'Segoe UI, sans-serif',
         fontSize: '14px',
         color: '#9aa7b5',
@@ -86,6 +97,11 @@ export class MenuScene extends Phaser.Scene {
         wordWrap: { width: width - 60 },
       })
       .setOrigin(0.5);
+
+    this.makeLinkButton(width / 2 - 72, 598, 128, '文档', docsUrl(), 0x5e35b1);
+    this.makeLinkButton(width / 2 + 72, 598, 128, 'GitHub', GITHUB_URL, 0x37474f);
+    this.makeFooter(width, height);
+
     this.refreshAiUi();
   }
 
@@ -191,6 +207,58 @@ export class MenuScene extends Phaser.Scene {
         ? '超多人：两队对打，灭掉对面全员得 1 局，先到 10；越往后地图越大。T加速 Z冰冻 W闪现 E电磁 A空袭'
         : '经典 4 人混战。激光是瞬时光束。新技能：T加速 / Z冰冻 / W闪现 / E电磁脉冲 / A空袭',
     );
+  }
+
+  private makeLinkButton(
+    x: number,
+    y: number,
+    w: number,
+    label: string,
+    url: string,
+    color: number,
+  ): void {
+    const bg = this.add
+      .rectangle(x, y, w, 36, color, 0.92)
+      .setStrokeStyle(1, 0xffffff, 0.12)
+      .setInteractive({ useHandCursor: true });
+    this.add
+      .text(x, y, label, {
+        fontFamily: 'Segoe UI, sans-serif',
+        fontSize: '15px',
+        color: '#eceff1',
+      })
+      .setOrigin(0.5);
+    bg.on('pointerover', () => bg.setFillStyle(color === 0x5e35b1 ? 0x7e57c2 : 0x455a64, 0.92));
+    bg.on('pointerout', () => bg.setFillStyle(color, 0.92));
+    bg.on('pointerdown', () => openExternal(url));
+  }
+
+  private makeFooter(width: number, height: number): void {
+    const lineY = height - 58;
+    const g = this.add.graphics();
+    g.lineStyle(1, 0xffffff, 0.1);
+    g.lineBetween(width * 0.12, lineY, width * 0.88, lineY);
+
+    this.add
+      .text(width / 2, height - 40, `Tank Trouble Online  ·  v${VERSION}`, {
+        fontFamily: 'Segoe UI, sans-serif',
+        fontSize: '11px',
+        color: '#78909c',
+      })
+      .setOrigin(0.5);
+
+    const credit = this.add
+      .text(width / 2, height - 22, '© 2026  jolaaa999 / jolly', {
+        fontFamily: 'Segoe UI, sans-serif',
+        fontSize: '12px',
+        color: '#b0bec5',
+      })
+      .setOrigin(0.5);
+
+    credit.setInteractive({ useHandCursor: true });
+    credit.on('pointerover', () => credit.setColor('#e1bee7'));
+    credit.on('pointerout', () => credit.setColor('#b0bec5'));
+    credit.on('pointerdown', () => openExternal(GITHUB_URL));
   }
 
   private makeButton(x: number, y: number, label: string, onClick: () => void): void {
