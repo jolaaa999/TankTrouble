@@ -14,6 +14,7 @@ import {
   formatChatSenderLabel,
   type ChatChannel,
   type ChatMessagePayload,
+  traceBouncingBeam,
 } from '@tanktrouble/shared';
 import { MazeView } from '../render/MazeView';
 import { TankView } from '../render/TankView';
@@ -21,6 +22,7 @@ import { BulletView } from '../render/BulletView';
 import { MineView, PickupView } from '../render/PickupView';
 import { getGameAudio } from '../audio/GameAudio';
 import { GameChat } from '../ui/GameChat';
+import { ChatBubbles } from '../ui/ChatBubbles';
 import type { Room } from 'colyseus.js';
 
 export type GameSceneData =
@@ -33,6 +35,47 @@ export type GameSceneData =
       customMaze?: CustomMazeLayout;
     }
   | { mode: 'online'; room: Room; sessionId: string };
+
+type OnlineTankSnap = {
+  id: string;
+  x: number;
+  y: number;
+  angle: number;
+  alive: boolean;
+  colorIndex: number;
+  shieldTime: number;
+  turboTime: number;
+  freezeTime: number;
+  weapon: string;
+  weaponPlus: boolean;
+  showLaserSight: boolean;
+  isBot: boolean;
+  invisTime: number;
+  umbrellaTime: number;
+};
+
+type OnlineStateCache = {
+  receivedAt: number;
+  phase: string;
+  tanks: OnlineTankSnap[];
+  prevTanks: Map<string, { x: number; y: number; angle: number }>;
+  bullets: { id: number; x: number; y: number; vx: number; vy: number; kind: string }[];
+  beams: { id: number; x1: number; y1: number; x2: number; y2: number; life: number; kind: string }[];
+  pickups: { id: number; kind: PickupKind; x: number; y: number }[];
+  mines: { id: number; x: number; y: number; visible: boolean; triggered: boolean }[];
+  hazards: { id: number; x: number; y: number; radius: number; timer: number }[];
+  fx: {
+    id: number;
+    kind: string;
+    x: number;
+    y: number;
+    life: number;
+    maxLife: number;
+    radius: number;
+    colorIndex: number;
+    label: string;
+  }[];
+};
 
 export class GameScene extends Phaser.Scene {
   private mode: 'local' | 'online' = 'local';
@@ -63,6 +106,7 @@ export class GameScene extends Phaser.Scene {
   private onlineCols = -1;
   private onlineRows = -1;
   private onlineWalls: { x1: number; y1: number; x2: number; y2: number; kind: 'h' | 'v' }[] = [];
+  private onlineCache: OnlineStateCache | null = null;
   private statusText: Phaser.GameObjects.Text | null = null;
   private scoreText: Phaser.GameObjects.Text | null = null;
   private keys!: {
@@ -77,6 +121,7 @@ export class GameScene extends Phaser.Scene {
   private lastSnapSeed = -1;
   private readonly audio = getGameAudio();
   private gameChat: GameChat | null = null;
+  private chatBubbles: ChatBubbles | null = null;
   /** Local sim at 60Hz for snappy no-inertia feel; online stays server 30Hz. */
   private readonly fixedDt = 1 / 60;
 
@@ -106,6 +151,7 @@ export class GameScene extends Phaser.Scene {
     this.onlineCols = -1;
     this.onlineRows = -1;
     this.onlineWalls = [];
+    this.onlineCache = null;
     this.simAcc = 0;
     this.lastInputSentAt = 0;
     this.lastInputKey = '';
@@ -201,6 +247,40 @@ export class GameScene extends Phaser.Scene {
       teamMode: this.matchMode === 'mega',
       onSend: (text, channel) => this.sendChat(text, channel),
     });
+    this.chatBubbles = new ChatBubbles(this);
+  }
+
+  private getMyTeam(): number {
+    if (this.mode === 'local') {
+      return this.sim?.getSnapshot().tanks.find((t) => t.id === 'p1')?.team ?? 0;
+    }
+    const state = this.room?.state as { players?: Map<string, { team: number }> } | undefined;
+    return state?.players?.get(this.sessionId)?.team ?? 0;
+  }
+
+  private shouldShowChat(payload: ChatMessagePayload): boolean {
+    if (payload.channel !== 'team' || this.matchMode !== 'mega') return true;
+    return payload.team === this.getMyTeam();
+  }
+
+  private handleChatPayload(payload: ChatMessagePayload): void {
+    if (!this.shouldShowChat(payload)) return;
+    this.chatBubbles?.show(payload.fromId, payload.text);
+    this.gameChat?.appendMessage(payload);
+  }
+
+  private updateChatBubblePositions(): void {
+    const positions = new Map<string, { x: number; y: number }>();
+    if (this.mode === 'local' && this.sim) {
+      for (const t of this.sim.getSnapshot().tanks) {
+        if (t.alive) positions.set(t.id, { x: this.offsetX + t.x, y: this.offsetY + t.y });
+      }
+    } else if (this.onlineCache) {
+      for (const t of this.getInterpolatedOnlineTanks()) {
+        if (t.alive) positions.set(t.id, { x: this.offsetX + t.x, y: this.offsetY + t.y });
+      }
+    }
+    this.chatBubbles?.update(positions, this.time.now);
   }
 
   private sendChat(text: string, channel: ChatChannel): void {
@@ -225,12 +305,12 @@ export class GameScene extends Phaser.Scene {
       text,
       at: Date.now(),
     };
-    this.gameChat?.receive(payload);
+    this.handleChatPayload(payload);
   }
 
   private onChatMessage(payload: ChatMessagePayload): void {
     const self = this.mode === 'online' && payload.fromId === this.sessionId;
-    this.gameChat?.receive({
+    this.handleChatPayload({
       ...payload,
       fromLabel: self
         ? '你'
@@ -288,7 +368,7 @@ export class GameScene extends Phaser.Scene {
       this.onChatMessage(payload);
     });
 
-    const syncFromState = () => {
+    const ingestOnlineState = () => {
       const state = room.state as {
         seed: number;
         mazeCols: number;
@@ -316,8 +396,11 @@ export class GameScene extends Phaser.Scene {
             turboTime: number;
             freezeTime: number;
             weapon: string;
+            weaponPlus: boolean;
             showLaserSight: boolean;
             isBot: boolean;
+            invisTime: number;
+            umbrellaTime: number;
           }
         >;
         bullets: Map<
@@ -378,36 +461,74 @@ export class GameScene extends Phaser.Scene {
 
       if (state.phase === 'intermission') {
         this.statusText?.setText('小局结束 · 下一张地图生成中…');
+      } else if (state.phase === 'playing') {
+        const status = `第 ${state.roundIndex} 局 · L激光/Z冰冻/W闪现/E电磁/A空袭 · 先到 ${this.scoreToWin}`;
+        if (this.statusText?.text !== status) this.statusText?.setText(status);
       }
 
-      this.syncTankViews(state.tanks);
-      this.syncBulletViews(state.bullets);
-      this.drawBeams(state.beams);
-      this.syncPickupViews(state.pickups);
-      this.syncMineViews(state.mines);
-      this.drawHazards(state.hazards);
-      this.drawFx(state.fx ?? new Map());
-      this.drawOnlineLaserSights(state.tanks);
+      const prevTanks = new Map<string, { x: number; y: number; angle: number }>();
+      if (this.onlineCache) {
+        for (const t of this.onlineCache.tanks) {
+          prevTanks.set(t.id, { x: t.x, y: t.y, angle: t.angle });
+        }
+      }
 
-      const tankList: { id: string; x: number; y: number; alive: boolean }[] = [];
-      state.tanks.forEach((t) =>
-        tankList.push({ id: t.id, x: t.x, y: t.y, alive: t.alive }),
+      const tanks: OnlineTankSnap[] = [];
+      state.tanks.forEach((t) => tanks.push({ ...t }));
+      const bullets: OnlineStateCache['bullets'] = [];
+      state.bullets.forEach((b) =>
+        bullets.push({
+          id: b.id,
+          x: b.x,
+          y: b.y,
+          vx: b.vx ?? 0,
+          vy: b.vy ?? 0,
+          kind: b.kind,
+        }),
       );
-      const pickupList: { id: number }[] = [];
-      state.pickups.forEach((p) => pickupList.push({ id: p.id }));
-      const fxList: {
-        id: number;
-        kind: string;
-        radius: number;
-        label?: string;
-      }[] = [];
-      (state.fx ?? new Map()).forEach((f) => fxList.push(f));
+      const beams: OnlineStateCache['beams'] = [];
+      state.beams.forEach((b) => beams.push({ ...b }));
+      const pickups: OnlineStateCache['pickups'] = [];
+      state.pickups.forEach((p) => pickups.push({ ...p }));
+      const mines: OnlineStateCache['mines'] = [];
+      state.mines.forEach((m) => mines.push({ ...m }));
+      const hazards: OnlineStateCache['hazards'] = [];
+      state.hazards.forEach((h) => hazards.push({ ...h }));
+      const fx: OnlineStateCache['fx'] = [];
+      (state.fx ?? new Map()).forEach((f) => fx.push({ ...f }));
+
+      this.onlineCache = {
+        receivedAt: performance.now(),
+        phase: state.phase,
+        tanks,
+        prevTanks,
+        bullets,
+        beams,
+        pickups,
+        mines,
+        hazards,
+        fx,
+      };
+
+      const tankList: { id: string; x: number; y: number; alive: boolean }[] = tanks.map((t) => ({
+        id: t.id,
+        x: t.x,
+        y: t.y,
+        alive: t.alive,
+      }));
+      const pickupList = pickups.map((p) => ({ id: p.id }));
+      const fxList = fx.map((f) => ({
+        id: f.id,
+        kind: f.kind,
+        radius: f.radius,
+        label: f.label,
+      }));
 
       if (this.onlineSeed !== this.lastSnapSeed) {
         this.audio.resetPickups();
         this.lastSnapSeed = this.onlineSeed;
       }
-      this.audio.processTanks(tankList, 1 / 60);
+      this.audio.processTanks(tankList, 1 / GAME.tickHz);
       this.audio.processPickups(pickupList);
       this.audio.processFx(fxList);
 
@@ -432,8 +553,59 @@ export class GameScene extends Phaser.Scene {
       }
     };
 
-    room.onStateChange(syncFromState);
-    syncFromState();
+    room.onStateChange(ingestOnlineState);
+    ingestOnlineState();
+  }
+
+  private onlineInterpAlpha(): number {
+    if (!this.onlineCache) return 1;
+    const tickMs = 1000 / GAME.tickHz;
+    return Math.min(1.12, (performance.now() - this.onlineCache.receivedAt) / tickMs);
+  }
+
+  private lerpAngle(from: number, to: number, t: number): number {
+    let d = to - from;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    return from + d * t;
+  }
+
+  private getInterpolatedOnlineTanks(): OnlineTankSnap[] {
+    const snap = this.onlineCache;
+    if (!snap) return [];
+    const alpha = this.onlineInterpAlpha();
+    return snap.tanks.map((t) => {
+      const prev = snap.prevTanks.get(t.id);
+      if (!prev) return t;
+      return {
+        ...t,
+        x: prev.x + (t.x - prev.x) * alpha,
+        y: prev.y + (t.y - prev.y) * alpha,
+        angle: this.lerpAngle(prev.angle, t.angle, alpha),
+      };
+    });
+  }
+
+  private renderOnlineFrame(): void {
+    const snap = this.onlineCache;
+    if (!snap || this.matchOver) return;
+
+    const tanks = this.getInterpolatedOnlineTanks();
+    const bulletDt = Math.min(0.05, (performance.now() - snap.receivedAt) / 1000);
+    const bullets = snap.bullets.map((b) => ({
+      ...b,
+      x: b.x + b.vx * bulletDt,
+      y: b.y + b.vy * bulletDt,
+    }));
+
+    this.syncTankViewsFromSnap(tanks);
+    this.syncBulletsFromSnap(bullets);
+    this.drawBeamsFromSnap(snap.beams);
+    this.syncPickupsFromSnap(snap.pickups);
+    this.syncMinesFromSnap(snap.mines);
+    this.drawHazardsFromSnap(snap.hazards);
+    this.drawFxFromSnap(snap.fx);
+    this.drawOnlineLaserSightsFromList(tanks);
   }
 
   private scoreMap(
@@ -451,8 +623,13 @@ export class GameScene extends Phaser.Scene {
 
   update(_t: number, dtMs: number): void {
     this.timeSec += dtMs / 1000;
-    if (this.mode === 'local') this.updateLocal(Math.min(0.05, dtMs / 1000));
-    else this.updateOnlineInput();
+    if (this.mode === 'local') {
+      this.updateLocal(Math.min(0.05, dtMs / 1000));
+    } else {
+      this.updateOnlineInput();
+      this.renderOnlineFrame();
+    }
+    this.updateChatBubblePositions();
   }
 
   private readKeys(
@@ -624,47 +801,6 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private syncTankViews(
-    tanks: Map<
-      string,
-      {
-        id: string;
-        x: number;
-        y: number;
-        angle: number;
-        alive: boolean;
-        colorIndex: number;
-        shieldTime: number;
-        turboTime?: number;
-        freezeTime?: number;
-        weapon?: string;
-        weaponPlus?: boolean;
-        invisTime?: number;
-        umbrellaTime?: number;
-        isBot?: boolean;
-      }
-    >,
-  ): void {
-    const list: {
-      id: string;
-      x: number;
-      y: number;
-      angle: number;
-      alive: boolean;
-      colorIndex: number;
-      shieldTime: number;
-      turboTime?: number;
-      freezeTime?: number;
-      weapon?: string;
-      weaponPlus?: boolean;
-      invisTime?: number;
-      umbrellaTime?: number;
-      isBot?: boolean;
-    }[] = [];
-    tanks.forEach((t) => list.push(t));
-    this.syncTankViewsFromSnap(list);
-  }
-
   private drawBeamsFromSnap(
     beams: { id: number; x1: number; y1: number; x2: number; y2: number; life: number; kind: string }[],
   ): void {
@@ -688,25 +824,6 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private drawBeams(
-    beams: Map<
-      string,
-      { id: number; x1: number; y1: number; x2: number; y2: number; life: number; kind: string }
-    >,
-  ): void {
-    const list: {
-      id: number;
-      x1: number;
-      y1: number;
-      x2: number;
-      y2: number;
-      life: number;
-      kind: string;
-    }[] = [];
-    beams.forEach((b) => list.push(b));
-    this.drawBeamsFromSnap(list);
-  }
-
   private drawHazardsFromSnap(
     hazards: { id: number; x: number; y: number; radius: number; timer: number }[],
   ): void {
@@ -720,14 +837,6 @@ export class GameScene extends Phaser.Scene {
       g.fillStyle(0xff1744, 0.12 + pulse * 0.1);
       g.fillCircle(this.offsetX + h.x, this.offsetY + h.y, h.radius * 0.4);
     }
-  }
-
-  private drawHazards(
-    hazards: Map<string, { id: number; x: number; y: number; radius: number; timer: number }>,
-  ): void {
-    const list: { id: number; x: number; y: number; radius: number; timer: number }[] = [];
-    hazards.forEach((h) => list.push(h));
-    this.drawHazardsFromSnap(list);
   }
 
   private drawFxFromSnap(
@@ -905,37 +1014,6 @@ export class GameScene extends Phaser.Scene {
     this.announceTexts.clear();
   }
 
-  private drawFx(
-    fx: Map<
-      string,
-      {
-        id: number;
-        kind: string;
-        x: number;
-        y: number;
-        life: number;
-        maxLife?: number;
-        radius: number;
-        colorIndex: number;
-        label?: string;
-      }
-    >,
-  ): void {
-    const list: {
-      id: number;
-      kind: string;
-      x: number;
-      y: number;
-      life: number;
-      maxLife?: number;
-      radius: number;
-      colorIndex: number;
-      label?: string;
-    }[] = [];
-    fx.forEach((f) => list.push(f));
-    this.drawFxFromSnap(list);
-  }
-
   private syncBulletsFromSnap(
     bullets: { id: number; x: number; y: number; vx?: number; vy?: number; kind?: string }[],
   ): void {
@@ -960,18 +1038,6 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private syncBulletViews(
-    bullets: Map<
-      string,
-      { id: number; x: number; y: number; vx?: number; vy?: number; kind: string }
-    >,
-  ): void {
-    const list: { id: number; x: number; y: number; vx?: number; vy?: number; kind: string }[] =
-      [];
-    bullets.forEach((b) => list.push(b));
-    this.syncBulletsFromSnap(list);
-  }
-
   private syncPickupsFromSnap(
     pickups: { id: number; kind: PickupKind; x: number; y: number }[],
   ): void {
@@ -990,14 +1056,6 @@ export class GameScene extends Phaser.Scene {
         this.pickupViews.delete(id);
       }
     }
-  }
-
-  private syncPickupViews(
-    pickups: Map<string, { id: number; kind: PickupKind; x: number; y: number }>,
-  ): void {
-    const list: { id: number; kind: PickupKind; x: number; y: number }[] = [];
-    pickups.forEach((p) => list.push(p));
-    this.syncPickupsFromSnap(list);
   }
 
   private syncMinesFromSnap(
@@ -1020,14 +1078,6 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private syncMineViews(
-    mines: Map<string, { id: number; x: number; y: number; visible: boolean; triggered: boolean }>,
-  ): void {
-    const list: { id: number; x: number; y: number; visible: boolean; triggered: boolean }[] = [];
-    mines.forEach((m) => list.push(m));
-    this.syncMinesFromSnap(list);
-  }
-
   private drawLaserSights(
     tanks: { x: number; y: number; angle: number; alive: boolean; showLaserSight: boolean; colorIndex: number }[],
   ): void {
@@ -1043,28 +1093,16 @@ export class GameScene extends Phaser.Scene {
     if (!any) return;
   }
 
-  private drawOnlineLaserSights(
-    tanks: Map<
-      string,
-      {
-        x: number;
-        y: number;
-        angle: number;
-        alive: boolean;
-        showLaserSight: boolean;
-        colorIndex: number;
-      }
-    >,
-  ): void {
+  private drawOnlineLaserSightsFromList(tanks: OnlineTankSnap[]): void {
     const g = this.laserSight;
     if (!g) return;
     g.clear();
     const walls = this.onlineWalls;
     if (walls.length === 0) return;
-    tanks.forEach((t) => {
-      if (!t.alive || !t.showLaserSight) return;
+    for (const t of tanks) {
+      if (!t.alive || !t.showLaserSight) continue;
       this.strokeSight(g, t.x, t.y, t.angle, t.colorIndex, walls);
-    });
+    }
   }
 
   private strokeSight(
@@ -1078,36 +1116,19 @@ export class GameScene extends Phaser.Scene {
     const hex = GAME.playerColors[colorIndex % GAME.playerColors.length]!;
     const color = Phaser.Display.Color.HexStringToColor(hex).color;
     g.lineStyle(2, color, 0.5);
-    let cx = x;
-    let cy = y;
-    let vx = Math.cos(angle) * 18;
-    let vy = Math.sin(angle) * 18;
+    const f = { x: Math.cos(angle), y: Math.sin(angle) };
+    const hitR = GAME.tankRadius + 6 + GAME.wallThickness * 0.5;
+    const points = traceBouncingBeam(x, y, f.x, f.y, walls, {
+      maxBounces: GAME.laserBounces,
+      segLen: 14,
+      hitRadius: hitR,
+      maxSegs: 48,
+    });
+    if (points.length < 2) return;
     g.beginPath();
-    g.moveTo(this.offsetX + cx, this.offsetY + cy);
-    // Fewer steps = cheaper aim laser (was 90 × walls)
-    for (let i = 0; i < 36; i++) {
-      cx += vx;
-      cy += vy;
-      for (const wall of walls) {
-        const dx = wall.x2 - wall.x1;
-        const dy = wall.y2 - wall.y1;
-        const lenSq = dx * dx + dy * dy || 1;
-        let tt = ((cx - wall.x1) * dx + (cy - wall.y1) * dy) / lenSq;
-        tt = Math.max(0, Math.min(1, tt));
-        const px = wall.x1 + tt * dx;
-        const py = wall.y1 + tt * dy;
-        const ox = cx - px;
-        const oy = cy - py;
-        if (ox * ox + oy * oy < 16) {
-          if (wall.kind === 'h') vy *= -1;
-          else vx *= -1;
-          cx += vx;
-          cy += vy;
-          break;
-        }
-      }
-      if (i % 2 === 0) g.lineTo(this.offsetX + cx, this.offsetY + cy);
-      else g.moveTo(this.offsetX + cx, this.offsetY + cy);
+    g.moveTo(this.offsetX + points[0]!.x, this.offsetY + points[0]!.y);
+    for (let i = 1; i < points.length; i++) {
+      g.lineTo(this.offsetX + points[i]!.x, this.offsetY + points[i]!.y);
     }
     g.strokePath();
   }
@@ -1115,6 +1136,8 @@ export class GameScene extends Phaser.Scene {
   shutdown(): void {
     this.gameChat?.destroy();
     this.gameChat = null;
+    this.chatBubbles?.destroy();
+    this.chatBubbles = null;
     this.audio.stopBgm();
     this.audio.resetBattleState();
     this.mazeView?.destroy();

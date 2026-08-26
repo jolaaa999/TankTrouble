@@ -7,7 +7,7 @@ import {
   type ChatMessagePayload,
 } from '@tanktrouble/shared';
 
-const MAX_LOG_LINES = 10;
+const MAX_LOG_LINES = 8;
 
 export type GameChatOptions = {
   teamMode: boolean;
@@ -36,7 +36,7 @@ export class GameChat {
     window.addEventListener('resize', this.boundResize);
     window.addEventListener('keydown', this.boundKeyDown, true);
     this.layout();
-    this.appendSystem('按 Enter 或 T 打开聊天');
+    this.setVisible(false);
   }
 
   isInputActive(): boolean {
@@ -53,9 +53,16 @@ export class GameChat {
     this.refreshChannelUi();
   }
 
-  receive(msg: ChatMessagePayload): void {
+  /** Append to in-panel log while chat is open. */
+  appendMessage(msg: ChatMessagePayload): void {
+    if (!this.panelOpen) return;
     const ch = chatChannelLabel(msg.channel, this.teamMode);
-    const teamTint = this.teamMode && msg.channel === 'team' ? (msg.team === 0 ? '#ef9a9a' : '#90caf9') : '#cfd8dc';
+    const teamTint =
+      this.teamMode && msg.channel === 'team'
+        ? msg.team === 0
+          ? '#ef9a9a'
+          : '#90caf9'
+        : '#cfd8dc';
     this.appendLine(`[${ch}] ${msg.fromLabel}: ${msg.text}`, teamTint);
   }
 
@@ -80,11 +87,12 @@ export class GameChat {
       'font-family:"Segoe UI","Microsoft YaHei",sans-serif',
       'font-size:13px',
       'color:#eceff1',
+      'display:none',
     ].join(';');
 
     const panel = document.createElement('div');
     panel.style.cssText = [
-      'background:rgba(15,20,28,0.88)',
+      'background:rgba(15,20,28,0.92)',
       'border:1px solid rgba(255,255,255,0.12)',
       'border-radius:8px',
       'box-shadow:0 4px 20px rgba(0,0,0,0.35)',
@@ -96,8 +104,8 @@ export class GameChat {
     const log = document.createElement('div');
     log.style.cssText = [
       'padding:8px 10px',
-      'min-height:96px',
-      'max-height:140px',
+      'min-height:72px',
+      'max-height:120px',
       'overflow-y:auto',
       'line-height:1.45',
       'word-break:break-word',
@@ -105,18 +113,17 @@ export class GameChat {
 
     const hint = document.createElement('div');
     hint.style.cssText = 'padding:0 10px 6px;color:#78909c;font-size:11px;';
-    hint.textContent = 'Enter / T 聊天 · Esc 关闭';
+    hint.textContent = 'Enter 发送 · Esc 关闭';
 
     const composer = document.createElement('div');
     composer.style.cssText = [
-      'display:none',
+      'display:flex',
       'flex-direction:column',
       'gap:6px',
       'padding:8px 10px 10px',
       'border-top:1px solid rgba(255,255,255,0.08)',
       'background:rgba(0,0,0,0.2)',
     ].join(';');
-    composer.dataset.role = 'composer';
 
     const quickRow = document.createElement('div');
     quickRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;';
@@ -218,8 +225,12 @@ export class GameChat {
     this.refreshChannelUi();
   }
 
+  private setVisible(visible: boolean): void {
+    if (this.root) this.root.style.display = visible ? 'block' : 'none';
+  }
+
   private layout(): void {
-    if (!this.root) return;
+    if (!this.root || !this.panelOpen) return;
     const canvas = this.scene.game.canvas;
     const rect = canvas.getBoundingClientRect();
     const w = Math.min(360, Math.max(260, rect.width * 0.28));
@@ -253,8 +264,8 @@ export class GameChat {
   private openPanel(): void {
     if (!this.root) return;
     this.panelOpen = true;
-    const composer = this.root.querySelector('[data-role="composer"]') as HTMLElement | null;
-    if (composer) composer.style.display = 'flex';
+    this.setVisible(true);
+    if (this.logEl) this.logEl.innerHTML = '';
     if (this.hintEl) {
       this.hintEl.textContent = this.teamMode
         ? 'Tab 切换全员/阵营 · Enter 发送 · Esc 关闭'
@@ -268,11 +279,9 @@ export class GameChat {
   private closePanel(): void {
     if (!this.root) return;
     this.panelOpen = false;
-    const composer = this.root.querySelector('[data-role="composer"]') as HTMLElement | null;
-    if (composer) composer.style.display = 'none';
+    this.setVisible(false);
     if (this.inputEl) this.inputEl.value = '';
     this.inputEl?.blur();
-    if (this.hintEl) this.hintEl.textContent = 'Enter / T 聊天 · Esc 关闭';
   }
 
   private toggleChannel(): void {
@@ -310,10 +319,6 @@ export class GameChat {
     if (!trimmed) return false;
     this.onSend(trimmed, this.teamMode ? this.channel : 'all');
     return true;
-  }
-
-  private appendSystem(text: string): void {
-    this.appendLine(text, '#78909c');
   }
 
   private appendLine(text: string, color = '#eceff1'): void {

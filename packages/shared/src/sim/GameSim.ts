@@ -27,7 +27,6 @@ import type {
 } from '../types.js';
 import {
   bounceBulletOffWall,
-  circleHitsSegment,
   circlesOverlap,
   forwardFromAngle,
   placeBulletOutsideWall,
@@ -1070,11 +1069,12 @@ export class GameSim {
   ): void {
     const f = forwardFromAngle(tank.angle);
     const muzzle = this.safeForwardPoint(tank, GAME.tankRadius + 4, 3);
+    const hitR = 2.5 + GAME.wallThickness * 0.5;
+    const segLen = 10;
     let x = muzzle.x;
     let y = muzzle.y;
     let vx = f.x;
     let vy = f.y;
-    const step = 5;
     let bounces = 0;
     let segX = x;
     let segY = y;
@@ -1096,44 +1096,59 @@ export class GameSim {
       pushed += 1;
     };
 
-    for (let i = 0; i < 480; i++) {
-      const nx = x + vx * step;
-      const ny = y + vy * step;
-      let bounced = false;
+    const tankAlong = (x0: number, y0: number, x1: number, y1: number): SimTank | null => {
+      const dist = Math.hypot(x1 - x0, y1 - y0);
+      const steps = Math.max(1, Math.ceil(dist / 4));
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const px = x0 + (x1 - x0) * t;
+        const py = y0 + (y1 - y0) * t;
+        for (const other of this.tanks.values()) {
+          if (!other.alive || this.isAlly(tank, other)) continue;
+          if (other.invisTime > 0) continue;
+          if (!circlesOverlap(px, py, 5, other.x, other.y, GAME.tankRadius)) continue;
+          return other;
+        }
+      }
+      return null;
+    };
 
-      for (const wall of this.maze.walls) {
-        const hit = circleHitsSegment(nx, ny, 2.5, wall);
-        if (!hit.hit) continue;
-        pushSeg(x, y);
-        x += hit.nx * hit.depth;
-        y += hit.ny * hit.depth;
-        const b = bounceBulletOffWall(vx * 100, vy * 100, wall);
-        const sp = Math.hypot(b.vx, b.vy) || 1;
-        vx = b.vx / sp;
-        vy = b.vy / sp;
+    const handleTankHit = (other: SimTank): boolean => {
+      pushSeg(other.x, other.y, true);
+      if (other.shieldTime > 0) return true;
+      other.alive = false;
+      return !pierce;
+    };
+
+    for (let guard = 0; guard < 320 && bounces <= maxBounces; guard++) {
+      const nx = x + vx * segLen;
+      const ny = y + vy * segLen;
+
+      const earlyTank = tankAlong(x, y, nx, ny);
+      if (earlyTank && handleTankHit(earlyTank)) return;
+
+      const wallHit = sweepCircleWalls(x, y, nx, ny, hitR, this.maze.walls);
+      if (wallHit) {
+        const placed = placeBulletOutsideWall(wallHit.wall, wallHit.x, wallHit.y, hitR, x, y);
+        const midTank = tankAlong(x, y, placed.x, placed.y);
+        if (midTank && handleTankHit(midTank)) return;
+        pushSeg(placed.x, placed.y);
+        const bounced = bounceBulletOffWall(vx * 100, vy * 100, wallHit.wall);
+        const sp = Math.hypot(bounced.vx, bounced.vy) || 1;
+        vx = bounced.vx / sp;
+        vy = bounced.vy / sp;
+        x = placed.x;
+        y = placed.y;
         bounces += 1;
-        bounced = true;
         if (bounces > maxBounces) {
           pushSeg(x, y, true);
           return;
         }
-        break;
+        continue;
       }
 
-      if (!bounced) {
-        x = nx;
-        y = ny;
-      }
-
-      for (const other of this.tanks.values()) {
-        if (!other.alive || this.isAlly(tank, other)) continue;
-        if (other.invisTime > 0) continue;
-        if (!circlesOverlap(x, y, 5, other.x, other.y, GAME.tankRadius)) continue;
-        pushSeg(other.x, other.y, true);
-        if (other.shieldTime > 0) return;
-        other.alive = false;
-        if (!pierce) return;
-      }
+      x = nx;
+      y = ny;
     }
 
     pushSeg(x, y, true);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GAME } from '../config.js';
-import { bounceBulletOffWall, sweepCircleWalls } from './collide.js';
+import { bounceBulletOffWall, sweepCircleWalls, traceBouncingBeam } from './collide.js';
 import { clearanceAlong, computeBotInput } from './BotAI.js';
 import { GameSim } from './GameSim.js';
 
@@ -42,6 +42,17 @@ describe('collide bounce', () => {
     const wall = { x1: 100, y1: 0, x2: 100, y2: 200, kind: 'v' as const };
     const hit = sweepCircleWalls(120, 100, 160, 100, 5, [wall]);
     expect(hit).toBeNull();
+  });
+
+  it('traceBouncingBeam stops at a wall instead of tunneling', () => {
+    const wall = { x1: 100, y1: 0, x2: 100, y2: 200, kind: 'v' as const };
+    const pts = traceBouncingBeam(80, 100, 1, 0, [wall], {
+      maxBounces: 0,
+      segLen: 20,
+      hitRadius: 5,
+    });
+    expect(pts.length).toBeGreaterThan(1);
+    for (const p of pts) expect(p.x).toBeLessThan(100 - 5);
   });
 });
 

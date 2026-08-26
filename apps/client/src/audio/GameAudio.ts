@@ -33,6 +33,9 @@ export class GameAudio {
   private bgmMode: BgmMode = 'none';
   private bgmTimer: ReturnType<typeof setInterval> | null = null;
   private bgmOscs: OscillatorNode[] = [];
+  private bgmMelody: { f: number; d: number; vol?: number }[] = [];
+  private bgmStep = 0;
+  private bgmBeatMs = 280;
   private seenFxIds = new Set<number>();
   private tankAlive = new Map<string, boolean>();
   private tankPrevPos = new Map<string, { x: number; y: number }>();
@@ -90,6 +93,8 @@ export class GameAudio {
       o.disconnect();
     }
     this.bgmOscs = [];
+    this.bgmMelody = [];
+    this.bgmStep = 0;
   }
 
   handleSimEvents(events: SimEvent[]): void {
@@ -335,47 +340,102 @@ export class GameAudio {
     this.bgmMode = mode;
 
     if (mode === 'menu') {
-      this.pad([220, 277.18, 329.63], 0.06);
-      this.bgmTimer = setInterval(() => this.pulse(330, 0.04, 0.035), 2400);
-      return;
+      this.bgmMelody = [
+        { f: 523.25, d: 0.24 },
+        { f: 659.25, d: 0.24 },
+        { f: 783.99, d: 0.24 },
+        { f: 987.77, d: 0.34 },
+        { f: 783.99, d: 0.24 },
+        { f: 659.25, d: 0.24 },
+        { f: 523.25, d: 0.38 },
+        { f: 0, d: 0.12 },
+        { f: 587.33, d: 0.24 },
+        { f: 698.46, d: 0.24 },
+        { f: 880.0, d: 0.34 },
+        { f: 698.46, d: 0.24 },
+        { f: 587.33, d: 0.24 },
+        { f: 523.25, d: 0.42 },
+        { f: 0, d: 0.2 },
+      ];
+      this.bgmBeatMs = 300;
+      this.startBgmBass(196.0, 0.055);
+    } else {
+      this.bgmMelody = [
+        { f: 220.0, d: 0.16, vol: 0.07 },
+        { f: 261.63, d: 0.16, vol: 0.07 },
+        { f: 329.63, d: 0.16, vol: 0.075 },
+        { f: 392.0, d: 0.22, vol: 0.08 },
+        { f: 329.63, d: 0.16, vol: 0.075 },
+        { f: 293.66, d: 0.16, vol: 0.07 },
+        { f: 246.94, d: 0.24, vol: 0.065 },
+        { f: 0, d: 0.08 },
+        { f: 196.0, d: 0.16, vol: 0.07 },
+        { f: 246.94, d: 0.16, vol: 0.075 },
+        { f: 311.13, d: 0.16, vol: 0.08 },
+        { f: 369.99, d: 0.22, vol: 0.085 },
+        { f: 311.13, d: 0.16, vol: 0.08 },
+        { f: 277.18, d: 0.16, vol: 0.075 },
+        { f: 220.0, d: 0.28, vol: 0.07 },
+        { f: 0, d: 0.1 },
+      ];
+      this.bgmBeatMs = 220;
+      this.startBgmBass(110.0, 0.06);
     }
 
-    this.pad([146.83, 174.61, 220], 0.05);
-    this.bgmTimer = setInterval(() => {
-      this.pulse(110, 0.05, 0.05);
-      this.noise(0.03, 0.55, 6000, 0.025);
-    }, 900);
+    this.bgmStep = 0;
+    this.playBgmStep();
+    this.bgmTimer = setInterval(() => this.playBgmStep(), this.bgmBeatMs);
   }
 
-  private pad(freqs: number[], gain: number): void {
+  private playBgmStep(): void {
+    if (this.bgmMelody.length === 0) return;
+    const note = this.bgmMelody[this.bgmStep % this.bgmMelody.length]!;
+    this.bgmStep += 1;
+    if (note.f <= 0) return;
+    const wave = this.bgmMode === 'battle' ? 'square' : 'triangle';
+    this.playBgmNote(note.f, note.d, note.vol ?? 0.085, wave);
+  }
+
+  private startBgmBass(rootHz: number, gain: number): void {
     if (!this.ctx || !this.bgmGain) return;
-    for (const f of freqs) {
-      const o = this.ctx.createOscillator();
-      const g = this.ctx.createGain();
-      o.type = 'triangle';
-      o.frequency.value = f;
-      g.gain.value = gain;
-      o.connect(g);
-      g.connect(this.bgmGain);
-      o.start();
-      this.bgmOscs.push(o);
-    }
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    const lfo = this.ctx.createOscillator();
+    const lfoG = this.ctx.createGain();
+    o.type = 'sine';
+    o.frequency.value = rootHz;
+    lfo.type = 'sine';
+    lfo.frequency.value = 0.12;
+    lfoG.gain.value = rootHz * 0.04;
+    lfo.connect(lfoG);
+    lfoG.connect(o.frequency);
+    g.gain.value = gain;
+    o.connect(g);
+    g.connect(this.bgmGain);
+    lfo.start();
+    o.start();
+    this.bgmOscs.push(o, lfo);
   }
 
-  private pulse(freq: number, dur: number, gain: number): void {
+  private playBgmNote(
+    freq: number,
+    dur: number,
+    gain: number,
+    type: OscillatorType,
+  ): void {
     if (!this.ctx || !this.bgmGain) return;
     const t = this.ctx.currentTime;
     const o = this.ctx.createOscillator();
     const g = this.ctx.createGain();
-    o.type = 'sine';
-    o.frequency.value = freq;
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t);
     g.gain.setValueAtTime(0, t);
     g.gain.linearRampToValueAtTime(gain, t + 0.02);
     g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     o.connect(g);
     g.connect(this.bgmGain);
     o.start(t);
-    o.stop(t + dur + 0.05);
+    o.stop(t + dur + 0.04);
   }
 
   private tone(

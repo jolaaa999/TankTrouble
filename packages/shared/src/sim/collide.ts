@@ -190,3 +190,62 @@ export function circlesOverlap(
 export function forwardFromAngle(angle: number): { x: number; y: number } {
   return { x: Math.cos(angle), y: Math.sin(angle) };
 }
+
+export type BeamTracePoint = { x: number; y: number };
+
+/**
+ * Trace a bouncing beam path using swept wall tests (no tunneling).
+ * Used for laser aim preview and shared with gameplay beam logic.
+ */
+export function traceBouncingBeam(
+  x0: number,
+  y0: number,
+  dirX: number,
+  dirY: number,
+  walls: readonly WallSegment[],
+  opts?: {
+    maxBounces?: number;
+    segLen?: number;
+    hitRadius?: number;
+    maxSegs?: number;
+  },
+): BeamTracePoint[] {
+  const maxBounces = opts?.maxBounces ?? 8;
+  const segLen = opts?.segLen ?? 12;
+  const hitR = opts?.hitRadius ?? 2.5;
+  const maxSegs = opts?.maxSegs ?? 220;
+
+  let x = x0;
+  let y = y0;
+  let vx = dirX;
+  let vy = dirY;
+  const sp0 = Math.hypot(vx, vy) || 1;
+  vx /= sp0;
+  vy /= sp0;
+
+  const points: BeamTracePoint[] = [{ x, y }];
+  let bounces = 0;
+
+  for (let i = 0; i < maxSegs && bounces <= maxBounces; i++) {
+    const nx = x + vx * segLen;
+    const ny = y + vy * segLen;
+    const hit = sweepCircleWalls(x, y, nx, ny, hitR, walls);
+    if (!hit) {
+      x = nx;
+      y = ny;
+      points.push({ x, y });
+      continue;
+    }
+    const placed = placeBulletOutsideWall(hit.wall, hit.x, hit.y, hitR, x, y);
+    points.push({ x: placed.x, y: placed.y });
+    const bounced = bounceBulletOffWall(vx * 100, vy * 100, hit.wall);
+    const sp = Math.hypot(bounced.vx, bounced.vy) || 1;
+    vx = bounced.vx / sp;
+    vy = bounced.vy / sp;
+    x = placed.x;
+    y = placed.y;
+    bounces += 1;
+    if (bounces > maxBounces) break;
+  }
+  return points;
+}
