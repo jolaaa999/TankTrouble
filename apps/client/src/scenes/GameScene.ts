@@ -109,6 +109,9 @@ export class GameScene extends Phaser.Scene {
   private onlineRows = -1;
   private onlineWalls: { x1: number; y1: number; x2: number; y2: number; kind: 'h' | 'v' }[] = [];
   private onlineCache: OnlineStateCache | null = null;
+  /** Continuous local prediction for own tank (advances each frame). */
+  private predictedSelf: TankMotionState | null = null;
+  private predictAcc = 0;
   private statusText: Phaser.GameObjects.Text | null = null;
   private scoreText: Phaser.GameObjects.Text | null = null;
   private keys!: {
@@ -154,6 +157,8 @@ export class GameScene extends Phaser.Scene {
     this.onlineRows = -1;
     this.onlineWalls = [];
     this.onlineCache = null;
+    this.predictedSelf = null;
+    this.predictAcc = 0;
     this.simAcc = 0;
     this.lastInputSentAt = 0;
     this.lastInputKey = '';
@@ -451,6 +456,8 @@ export class GameScene extends Phaser.Scene {
         this.onlineWalls = maze.walls;
         this.applyMazeLayout(maze.cols, maze.rows);
         this.mazeView?.draw(maze, this.offsetX, this.offsetY);
+        this.predictedSelf = null;
+        this.predictAcc = 0;
       }
 
       if (this.matchMode === 'mega') {
@@ -512,6 +519,10 @@ export class GameScene extends Phaser.Scene {
         fx,
       };
 
+      const me = tanks.find((t) => t.id === this.sessionId);
+      if (me) this.reconcilePredictedSelf(me);
+      else this.predictedSelf = null;
+
       const tankList: { id: string; x: number; y: number; alive: boolean }[] = tanks.map((t) => ({
         id: t.id,
         x: t.x,
@@ -562,42 +573,95 @@ export class GameScene extends Phaser.Scene {
   private onlineInterpAlpha(): number {
     if (!this.onlineCache) return 1;
     const tickMs = 1000 / GAME.tickHz;
-    return Math.min(1.25, (performance.now() - this.onlineCache.receivedAt) / tickMs);
+    // Stay in [0,1] — do not extrapolate remotes past the latest snap (causes hitching)
+    return Math.min(1, (performance.now() - this.onlineCache.receivedAt) / tickMs);
   }
 
-  /** Extrapolate local tank from last server snapshot + current input (no rubber-band). */
-  private extrapolateSelfTank(serverMe: OnlineTankSnap): { x: number; y: number; angle: number } {
-    const motion: TankMotionState = {
-      x: serverMe.x,
-      y: serverMe.y,
-      angle: serverMe.angle,
-      freezeTime: serverMe.freezeTime,
-      turboTime: serverMe.turboTime,
-      turboPlus: false,
-    };
-    if (!serverMe.alive || serverMe.freezeTime > 0 || this.onlineWalls.length === 0) {
-      return motion;
+  /**
+   * Soft-correct continuous prediction against server.
+   * Avoid yanking along the move axis while holding W/S (that was the stutter).
+   */
+  private reconcilePredictedSelf(serverMe: OnlineTankSnap): void {
+    if (!serverMe.alive) {
+      this.predictedSelf = {
+        x: serverMe.x,
+        y: serverMe.y,
+        angle: serverMe.angle,
+        freezeTime: serverMe.freezeTime,
+        turboTime: serverMe.turboTime,
+        turboPlus: false,
+      };
+      return;
     }
 
-    const snap = this.onlineCache;
-    const elapsed = Math.min(
-      0.08,
-      snap ? (performance.now() - snap.receivedAt) / 1000 : 0,
-    );
-    if (elapsed <= 0) return motion;
+    if (!this.predictedSelf) {
+      this.predictedSelf = {
+        x: serverMe.x,
+        y: serverMe.y,
+        angle: serverMe.angle,
+        freezeTime: serverMe.freezeTime,
+        turboTime: serverMe.turboTime,
+        turboPlus: false,
+      };
+      return;
+    }
 
+    this.predictedSelf.freezeTime = serverMe.freezeTime;
+    this.predictedSelf.turboTime = serverMe.turboTime;
+
+    const dx = serverMe.x - this.predictedSelf.x;
+    const dy = serverMe.y - this.predictedSelf.y;
+    const err = Math.hypot(dx, dy);
+    if (err > 56) {
+      this.predictedSelf.x = serverMe.x;
+      this.predictedSelf.y = serverMe.y;
+      this.predictedSelf.angle = serverMe.angle;
+      return;
+    }
+
+    const keys = this.readKeys(this.keys.p1);
+    const moving = keys.forward || keys.back;
+    if (moving && err < 36) {
+      // Only pull the lateral (sideways) error; keep predicted lead along facing
+      const f = { x: Math.cos(this.predictedSelf.angle), y: Math.sin(this.predictedSelf.angle) };
+      const along = dx * f.x + dy * f.y;
+      const latX = dx - along * f.x;
+      const latY = dy - along * f.y;
+      this.predictedSelf.x += latX * 0.18;
+      this.predictedSelf.y += latY * 0.18;
+      // Never pull backward along facing while driving — that creates the stutter
+      if (along > 0) {
+        this.predictedSelf.x += along * f.x * 0.12;
+        this.predictedSelf.y += along * f.y * 0.12;
+      }
+    } else if (err > 2) {
+      const k = Math.min(0.22, 0.06 + err * 0.004);
+      this.predictedSelf.x += dx * k;
+      this.predictedSelf.y += dy * k;
+    }
+
+    if (!keys.left && !keys.right) {
+      this.predictedSelf.angle = this.lerpAngle(this.predictedSelf.angle, serverMe.angle, 0.2);
+    }
+  }
+
+  private stepPredictedSelf(frameDt: number): void {
+    if (!this.predictedSelf || !this.onlineCache || this.matchOver) return;
+    const me = this.onlineCache.tanks.find((t) => t.id === this.sessionId);
+    if (!me?.alive || this.onlineWalls.length === 0) return;
+
+    this.predictedSelf.freezeTime = me.freezeTime;
+    this.predictedSelf.turboTime = me.turboTime;
+    if (me.freezeTime > 0) return;
+
+    this.predictAcc += Math.min(0.05, frameDt);
+    if (this.predictAcc > 0.1) this.predictAcc = 0.1;
     const input = this.readKeys(this.keys.p1);
-    const steeringLocked = serverMe.weapon === 'homing';
-    const step = 1 / GAME.tickHz;
-    let left = elapsed;
-    while (left >= step) {
-      stepTankMotion(motion, input, this.onlineWalls, step, steeringLocked);
-      left -= step;
+    const steeringLocked = me.weapon === 'homing';
+    while (this.predictAcc >= this.fixedDt) {
+      stepTankMotion(this.predictedSelf, input, this.onlineWalls, this.fixedDt, steeringLocked);
+      this.predictAcc -= this.fixedDt;
     }
-    if (left > 1e-5) {
-      stepTankMotion(motion, input, this.onlineWalls, left, steeringLocked);
-    }
-    return motion;
   }
 
   private lerpAngle(from: number, to: number, t: number): number {
@@ -611,28 +675,23 @@ export class GameScene extends Phaser.Scene {
     const snap = this.onlineCache;
     if (!snap) return [];
     const alpha = this.onlineInterpAlpha();
-    const tickSec = 1 / GAME.tickHz;
     return snap.tanks.map((t) => {
-      if (t.id === this.sessionId) {
-        const pos = this.extrapolateSelfTank(t);
-        return { ...t, x: pos.x, y: pos.y, angle: pos.angle };
+      if (t.id === this.sessionId && this.predictedSelf) {
+        return {
+          ...t,
+          x: this.predictedSelf.x,
+          y: this.predictedSelf.y,
+          angle: this.predictedSelf.angle,
+        };
       }
       const prev = snap.prevTanks.get(t.id);
       if (!prev) return t;
-      let x = prev.x + (t.x - prev.x) * alpha;
-      let y = prev.y + (t.y - prev.y) * alpha;
-      if (alpha > 1) {
-        const vx = (t.x - prev.x) / tickSec;
-        const vy = (t.y - prev.y) / tickSec;
-        const extra = (alpha - 1) * tickSec;
-        x += vx * extra;
-        y += vy * extra;
-      }
+      // Smooth blend between previous and current server poses (no overshoot)
       return {
         ...t,
-        x,
-        y,
-        angle: this.lerpAngle(prev.angle, t.angle, Math.min(1, alpha)),
+        x: prev.x + (t.x - prev.x) * alpha,
+        y: prev.y + (t.y - prev.y) * alpha,
+        angle: this.lerpAngle(prev.angle, t.angle, alpha),
       };
     });
   }
@@ -642,7 +701,7 @@ export class GameScene extends Phaser.Scene {
     if (!snap || this.matchOver) return;
 
     const tanks = this.getInterpolatedOnlineTanks();
-    const bulletDt = Math.min(0.05, (performance.now() - snap.receivedAt) / 1000);
+    const bulletDt = Math.min(0.04, (performance.now() - snap.receivedAt) / 1000);
     const bullets = snap.bullets.map((b) => ({
       ...b,
       x: b.x + b.vx * bulletDt,
@@ -677,7 +736,9 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'local') {
       this.updateLocal(Math.min(0.05, dtMs / 1000));
     } else {
+      const frameDt = Math.min(0.05, dtMs / 1000);
       this.updateOnlineInput();
+      this.stepPredictedSelf(frameDt);
       this.renderOnlineFrame();
     }
     this.updateChatBubblePositions();
@@ -776,10 +837,10 @@ export class GameScene extends Phaser.Scene {
     const keys = this.readKeys(this.keys.p1);
     const key = `${keys.left?1:0}${keys.right?1:0}${keys.forward?1:0}${keys.back?1:0}${keys.fire?1:0}`;
     const now = performance.now();
-    const moving = keys.forward || keys.back;
-    const turning = keys.left || keys.right;
-    const minGap = moving || turning ? 0 : keys.fire ? 16 : 40;
-    if (key === this.lastInputKey && minGap > 0 && now - this.lastInputSentAt < minGap) return;
+    const driving = keys.left || keys.right || keys.forward || keys.back;
+    // Cap at ~60Hz while driving; changes still send immediately
+    const minGap = driving ? 16 : keys.fire ? 16 : 50;
+    if (key === this.lastInputKey && now - this.lastInputSentAt < minGap) return;
     this.lastInputKey = key;
     this.lastInputSentAt = now;
     this.seq += 1;
