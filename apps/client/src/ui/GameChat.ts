@@ -8,18 +8,21 @@ import {
 } from '@tanktrouble/shared';
 
 const MAX_LOG_LINES = 8;
+const ROOT_ID = 'game-chat-root';
 
 export type GameChatOptions = {
   teamMode: boolean;
   onSend: (text: string, channel: ChatChannel) => void;
 };
 
+/** In-match only chat UI. Destroyed when GameScene shuts down. */
 export class GameChat {
   private readonly scene: Phaser.Scene;
   private teamMode: boolean;
   private readonly onSend: (text: string, channel: ChatChannel) => void;
   private channel: ChatChannel = 'all';
   private panelOpen = false;
+  private alive = true;
   private root: HTMLDivElement | null = null;
   private logEl: HTMLDivElement | null = null;
   private inputEl: HTMLInputElement | null = null;
@@ -32,6 +35,8 @@ export class GameChat {
     this.scene = scene;
     this.teamMode = opts.teamMode;
     this.onSend = opts.onSend;
+    // Remove any leaked panel from a previous match
+    document.getElementById(ROOT_ID)?.remove();
     this.buildDom();
     window.addEventListener('resize', this.boundResize);
     window.addEventListener('keydown', this.boundKeyDown, true);
@@ -40,11 +45,11 @@ export class GameChat {
   }
 
   isInputActive(): boolean {
-    return this.panelOpen && document.activeElement === this.inputEl;
+    return this.alive && this.panelOpen && document.activeElement === this.inputEl;
   }
 
   isPanelOpen(): boolean {
-    return this.panelOpen;
+    return this.alive && this.panelOpen;
   }
 
   setTeamMode(teamMode: boolean): void {
@@ -55,7 +60,7 @@ export class GameChat {
 
   /** Append to in-panel log while chat is open. */
   appendMessage(msg: ChatMessagePayload): void {
-    if (!this.panelOpen) return;
+    if (!this.alive || !this.panelOpen) return;
     const ch = chatChannelLabel(msg.channel, this.teamMode);
     const teamTint =
       this.teamMode && msg.channel === 'team'
@@ -67,9 +72,13 @@ export class GameChat {
   }
 
   destroy(): void {
+    if (!this.alive) return;
+    this.alive = false;
+    this.panelOpen = false;
     window.removeEventListener('resize', this.boundResize);
     window.removeEventListener('keydown', this.boundKeyDown, true);
     this.root?.remove();
+    document.getElementById(ROOT_ID)?.remove();
     this.root = null;
     this.logEl = null;
     this.inputEl = null;
@@ -79,7 +88,7 @@ export class GameChat {
 
   private buildDom(): void {
     const root = document.createElement('div');
-    root.id = 'game-chat-root';
+    root.id = ROOT_ID;
     root.style.cssText = [
       'position:fixed',
       'z-index:1000',
@@ -131,6 +140,7 @@ export class GameChat {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.textContent = phrase;
+      btn.tabIndex = -1;
       btn.style.cssText = [
         'border:none',
         'border-radius:4px',
@@ -146,7 +156,10 @@ export class GameChat {
       btn.onmouseleave = () => {
         btn.style.background = '#37474f';
       };
-      btn.onclick = () => this.sendText(phrase);
+      btn.onclick = () => {
+        this.sendText(phrase);
+        this.inputEl?.focus();
+      };
       quickRow.appendChild(btn);
     }
 
@@ -155,6 +168,7 @@ export class GameChat {
 
     const channelBtn = document.createElement('button');
     channelBtn.type = 'button';
+    channelBtn.tabIndex = -1;
     channelBtn.style.cssText = [
       'border:none',
       'border-radius:4px',
@@ -166,13 +180,17 @@ export class GameChat {
       'white-space:nowrap',
       'display:none',
     ].join(';');
-    channelBtn.onclick = () => this.toggleChannel();
+    channelBtn.onclick = () => {
+      this.toggleChannel();
+      this.inputEl?.focus();
+    };
     this.channelBtn = channelBtn;
 
     const input = document.createElement('input');
     input.type = 'text';
     input.maxLength = CHAT_MAX_LENGTH;
     input.placeholder = '输入消息…';
+    input.autocomplete = 'off';
     input.style.cssText = [
       'flex:1',
       'border:1px solid rgba(255,255,255,0.15)',
@@ -184,6 +202,7 @@ export class GameChat {
       'outline:none',
     ].join(';');
     input.onkeydown = (e) => {
+      // Capture-phase window listener handles Esc/open; stop Phaser/game keys
       e.stopPropagation();
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -200,6 +219,7 @@ export class GameChat {
 
     const sendBtn = document.createElement('button');
     sendBtn.type = 'button';
+    sendBtn.tabIndex = -1;
     sendBtn.textContent = '发送';
     sendBtn.style.cssText = [
       'border:none',
@@ -210,7 +230,10 @@ export class GameChat {
       'background:#2f6fed',
       'color:#fff',
     ].join(';');
-    sendBtn.onclick = () => this.sendFromInput();
+    sendBtn.onclick = () => {
+      this.sendFromInput();
+      this.inputEl?.focus();
+    };
 
     inputRow.append(channelBtn, input, sendBtn);
     composer.append(quickRow, inputRow);
@@ -230,7 +253,7 @@ export class GameChat {
   }
 
   private layout(): void {
-    if (!this.root || !this.panelOpen) return;
+    if (!this.alive || !this.root || !this.panelOpen) return;
     const canvas = this.scene.game.canvas;
     const rect = canvas.getBoundingClientRect();
     const w = Math.min(360, Math.max(260, rect.width * 0.28));
@@ -240,12 +263,15 @@ export class GameChat {
   }
 
   private onGlobalKeyDown(e: KeyboardEvent): void {
-    if (e.repeat) return;
-    const tag = (e.target as HTMLElement | null)?.tagName;
-    const inOtherInput = tag === 'INPUT' || tag === 'TEXTAREA';
-    if (inOtherInput && e.target !== this.inputEl) return;
+    if (!this.alive || e.repeat) return;
 
-    if (this.isInputActive()) {
+    const tag = (e.target as HTMLElement | null)?.tagName;
+    const inForeignInput =
+      (tag === 'INPUT' || tag === 'TEXTAREA') && e.target !== this.inputEl;
+    if (inForeignInput) return;
+
+    // Panel open: Esc always closes (even if focus left the input)
+    if (this.panelOpen) {
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
@@ -262,7 +288,7 @@ export class GameChat {
   }
 
   private openPanel(): void {
-    if (!this.root) return;
+    if (!this.alive || !this.root) return;
     this.panelOpen = true;
     this.setVisible(true);
     if (this.logEl) this.logEl.innerHTML = '';
@@ -273,7 +299,9 @@ export class GameChat {
     }
     this.refreshChannelUi();
     this.layout();
-    window.setTimeout(() => this.inputEl?.focus(), 0);
+    window.setTimeout(() => {
+      if (this.alive && this.panelOpen) this.inputEl?.focus();
+    }, 0);
   }
 
   private closePanel(): void {
@@ -315,6 +343,7 @@ export class GameChat {
   }
 
   private sendText(text: string): boolean {
+    if (!this.alive) return false;
     const trimmed = text.trim();
     if (!trimmed) return false;
     this.onSend(trimmed, this.teamMode ? this.channel : 'all');

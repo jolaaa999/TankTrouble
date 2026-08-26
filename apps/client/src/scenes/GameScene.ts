@@ -255,6 +255,8 @@ export class GameScene extends Phaser.Scene {
       onSend: (text, channel) => this.sendChat(text, channel),
     });
     this.chatBubbles = new ChatBubbles(this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.teardownChat());
+    this.events.once(Phaser.Scenes.Events.DESTROY, () => this.teardownChat());
   }
 
   private getMyTeam(): number {
@@ -331,7 +333,7 @@ export class GameScene extends Phaser.Scene {
   }
   /** Solo+AI only: press R to restart the whole match. */
   private restartLocalSolo(): void {
-    if (this.gameChat?.isInputActive()) return;
+    if (this.gameChat?.isInputActive() || this.gameChat?.isPanelOpen()) return;
     if (this.mode !== 'local' || !this.withBots || this.matchOver) return;
     this.scene.start('game', this.localRestartData());
   }
@@ -747,7 +749,7 @@ export class GameScene extends Phaser.Scene {
   private readKeys(
     map: Record<string, Phaser.Input.Keyboard.Key>,
   ): Omit<InputMessage, 'seq'> {
-    if (this.gameChat?.isInputActive()) {
+    if (this.gameChat?.isInputActive() || this.gameChat?.isPanelOpen()) {
       return {
         left: false,
         right: false,
@@ -1247,11 +1249,15 @@ export class GameScene extends Phaser.Scene {
     g.strokePath();
   }
 
-  shutdown(): void {
+  private teardownChat(): void {
     this.gameChat?.destroy();
     this.gameChat = null;
     this.chatBubbles?.destroy();
     this.chatBubbles = null;
+  }
+
+  shutdown(): void {
+    this.teardownChat();
     this.audio.stopBgm();
     this.audio.resetBattleState();
     this.mazeView?.destroy();
