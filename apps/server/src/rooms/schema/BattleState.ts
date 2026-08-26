@@ -6,6 +6,8 @@ export class PlayerState extends Schema {
   @type('number') colorIndex = 0;
   @type('number') score = 0;
   @type('number') team = 0;
+  /** Last input seq applied in a simulation tick (for client-side prediction replay). */
+  @type('number') lastInputSeq = 0;
 }
 
 export class TankState extends Schema {

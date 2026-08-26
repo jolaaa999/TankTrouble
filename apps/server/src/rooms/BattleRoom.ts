@@ -193,6 +193,8 @@ export class BattleRoom extends Room<BattleState> {
         const latched = this.fireLatch.get(id) === true;
         this.fireLatch.delete(id);
         this.sim.applyInput(id, { ...input, fire: input.fire || latched });
+        const player = this.state.players.get(id);
+        if (player) player.lastInputSeq = input.seq;
       }
       this.sim.step(dt);
       this.syncFromSim();

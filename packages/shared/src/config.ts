@@ -1,4 +1,4 @@
-export const VERSION = '0.3.14';
+export const VERSION = '0.3.15';
 
 export const GAME = {
   tickHz: 60,
