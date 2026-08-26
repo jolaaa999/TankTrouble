@@ -9,6 +9,7 @@ dist
 .gitignore
 .fly-deploy/
 apps/client/dist
+apps/client/public/docs
 apps/server/dist
 packages/shared/dist
 coverage

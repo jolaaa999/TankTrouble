@@ -8,7 +8,7 @@
     "dev:server": "pnpm --filter @tanktrouble/server dev",
     "dev:docs": "pnpm --filter @tanktrouble/docs dev",
     "build": "pnpm -r run build",
-    "build:web": "pnpm --filter @tanktrouble/shared build && pnpm --filter @tanktrouble/client build",
+    "build:web": "pnpm --filter @tanktrouble/shared build && pnpm --filter @tanktrouble/docs build && node scripts/copy-docs.mjs && pnpm --filter @tanktrouble/client build",
     "build:docs": "pnpm --filter @tanktrouble/docs build",
     "test": "pnpm -r run test"
   },

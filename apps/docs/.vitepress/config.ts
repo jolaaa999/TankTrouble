@@ -5,6 +5,7 @@ const PLAY_URL =
 
 export default defineConfig({
   lang: 'zh-CN',
+  base: '/docs/',
   title: 'Tank Trouble',
   titleTemplate: ':title · 坦克动荡文档',
   description: 'Tank Trouble 在线联机文档 — 玩法、26 字母技能、部署与更新日志',

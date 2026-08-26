@@ -1,8 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "pnpm install",
-  "buildCommand": "pnpm --filter @tanktrouble/shared build && pnpm --filter @tanktrouble/client build",
+  "buildCommand": "pnpm run build:web",
   "outputDirectory": "apps/client/dist",
   "framework": "vite",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    { "source": "/docs", "destination": "/docs/index.html" },
+    { "source": "/docs/:path*", "destination": "/docs/:path*" },
+    { "source": "/((?!docs/).*)", "destination": "/index.html" }
+  ]
 }
