@@ -39,5 +39,6 @@ export { shuffleWithSeed } from './maze/shuffle.js';
 export { GameSim } from './sim/GameSim.js';
 export type { GameSimOptions } from './sim/GameSim.js';
 export { computeBotInput, fillWithBots, isBotId, clearanceAlong } from './sim/BotAI.js';
+export { stepTankMotion, type TankMotionState } from './sim/tankMotion.js';
 export * from './sim/collide.js';
 export type * from './types.js';

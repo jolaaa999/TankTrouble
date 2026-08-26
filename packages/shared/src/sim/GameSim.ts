@@ -34,6 +34,7 @@ import {
   sweepCircleWalls,
 } from './collide.js';
 import { computeBotInput, fillWithBots, isBotId } from './BotAI.js';
+import { stepTankMotion } from './tankMotion.js';
 import { skillLabel } from '../skillLabels.js';
 
 const emptyInput = (): InputMessage => ({
@@ -457,46 +458,18 @@ export class GameSim {
         continue;
       }
 
-      const speedMul =
-        tank.turboTime > 0
-          ? tank.turboPlus
-            ? GAME.plusTurboSpeedMul
-            : GAME.turboSpeedMul
-          : 1;
-      const turnMul =
-        tank.turboTime > 0
-          ? tank.turboPlus
-            ? GAME.plusTurboTurnMul
-            : GAME.turboTurnMul
-          : 1;
-
       const steeringMissile = this.bullets.find(
         (b) => b.ownerId === tank.id && b.kind === 'homing' && b.life > 0,
       );
-      if (!steeringMissile || tank.weapon !== 'homing') {
-        if (input.left) tank.angle -= GAME.tankTurnSpeed * turnMul * dt;
-        if (input.right) tank.angle += GAME.tankTurnSpeed * turnMul * dt;
-        let move = 0;
-        if (input.forward) move += 1;
-        if (input.back) move -= 1;
-        if (move !== 0) {
-          const f = forwardFromAngle(tank.angle);
-          tank.x += f.x * GAME.tankSpeed * speedMul * move * dt;
-          tank.y += f.y * GAME.tankSpeed * speedMul * move * dt;
-          // Extra margin so the drawn barrel cannot sit past a wall
-          const resolved = resolveCircleWalls(
-            tank.x,
-            tank.y,
-            GAME.tankRadius + 6,
-            this.maze.walls,
-          );
-          tank.x = resolved.x;
-          tank.y = resolved.y;
-        }
-      } else {
-        if (input.left) tank.angle -= GAME.tankTurnSpeed * turnMul * dt;
-        if (input.right) tank.angle += GAME.tankTurnSpeed * turnMul * dt;
-      }
+      const steeringLocked = Boolean(steeringMissile && tank.weapon === 'homing');
+
+      stepTankMotion(
+        tank,
+        input,
+        this.maze.walls,
+        dt,
+        steeringLocked,
+      );
 
       tank.fireCooldown = Math.max(0, tank.fireCooldown - dt);
       this.tryFire(tank, input, fireEdge, events);

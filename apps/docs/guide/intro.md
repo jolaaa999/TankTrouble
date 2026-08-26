@@ -12,7 +12,7 @@
 
 ## 当前版本
 
-<span class="version-pill">v0.3.6</span>
+<span class="version-pill">v0.3.7</span>
 
 - **局内聊天**：坦克头顶气泡；Enter/T 打开面板（快捷语 + 全员/阵营频道）
 - **单人 + AI** 按 **R** 重开本场

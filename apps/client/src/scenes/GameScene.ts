@@ -15,6 +15,8 @@ import {
   type ChatChannel,
   type ChatMessagePayload,
   traceBouncingBeam,
+  stepTankMotion,
+  type TankMotionState,
 } from '@tanktrouble/shared';
 import { MazeView } from '../render/MazeView';
 import { TankView } from '../render/TankView';
@@ -107,6 +109,7 @@ export class GameScene extends Phaser.Scene {
   private onlineRows = -1;
   private onlineWalls: { x1: number; y1: number; x2: number; y2: number; kind: 'h' | 'v' }[] = [];
   private onlineCache: OnlineStateCache | null = null;
+  private predictedSelf: TankMotionState | null = null;
   private statusText: Phaser.GameObjects.Text | null = null;
   private scoreText: Phaser.GameObjects.Text | null = null;
   private keys!: {
@@ -152,6 +155,7 @@ export class GameScene extends Phaser.Scene {
     this.onlineRows = -1;
     this.onlineWalls = [];
     this.onlineCache = null;
+    this.predictedSelf = null;
     this.simAcc = 0;
     this.lastInputSentAt = 0;
     this.lastInputKey = '';
@@ -449,6 +453,7 @@ export class GameScene extends Phaser.Scene {
         this.onlineWalls = maze.walls;
         this.applyMazeLayout(maze.cols, maze.rows);
         this.mazeView?.draw(maze, this.offsetX, this.offsetY);
+        this.predictedSelf = null;
       }
 
       if (this.matchMode === 'mega') {
@@ -510,6 +515,10 @@ export class GameScene extends Phaser.Scene {
         fx,
       };
 
+      const me = tanks.find((t) => t.id === this.sessionId);
+      if (me) this.reconcilePredictedSelf(me);
+      else this.predictedSelf = null;
+
       const tankList: { id: string; x: number; y: number; alive: boolean }[] = tanks.map((t) => ({
         id: t.id,
         x: t.x,
@@ -560,7 +569,43 @@ export class GameScene extends Phaser.Scene {
   private onlineInterpAlpha(): number {
     if (!this.onlineCache) return 1;
     const tickMs = 1000 / GAME.tickHz;
-    return Math.min(1.12, (performance.now() - this.onlineCache.receivedAt) / tickMs);
+    return Math.min(1.25, (performance.now() - this.onlineCache.receivedAt) / tickMs);
+  }
+
+  private reconcilePredictedSelf(serverMe: OnlineTankSnap): void {
+    if (!this.predictedSelf) {
+      this.predictedSelf = {
+        x: serverMe.x,
+        y: serverMe.y,
+        angle: serverMe.angle,
+        freezeTime: serverMe.freezeTime,
+        turboTime: serverMe.turboTime,
+        turboPlus: false,
+      };
+      return;
+    }
+    const err = Math.hypot(this.predictedSelf.x - serverMe.x, this.predictedSelf.y - serverMe.y);
+    if (err > 28) {
+      this.predictedSelf.x = serverMe.x;
+      this.predictedSelf.y = serverMe.y;
+      this.predictedSelf.angle = serverMe.angle;
+    } else if (err > 1.2) {
+      const k = 0.45;
+      this.predictedSelf.x += (serverMe.x - this.predictedSelf.x) * k;
+      this.predictedSelf.y += (serverMe.y - this.predictedSelf.y) * k;
+      this.predictedSelf.angle = this.lerpAngle(this.predictedSelf.angle, serverMe.angle, k);
+    }
+    this.predictedSelf.freezeTime = serverMe.freezeTime;
+    this.predictedSelf.turboTime = serverMe.turboTime;
+  }
+
+  private updateOnlinePrediction(frameDt: number): void {
+    if (!this.predictedSelf || !this.onlineCache || this.matchOver) return;
+    const me = this.onlineCache.tanks.find((t) => t.id === this.sessionId);
+    if (!me?.alive || this.onlineWalls.length === 0) return;
+    this.predictedSelf.freezeTime = me.freezeTime;
+    this.predictedSelf.turboTime = me.turboTime;
+    stepTankMotion(this.predictedSelf, this.readKeys(this.keys.p1), this.onlineWalls, frameDt);
   }
 
   private lerpAngle(from: number, to: number, t: number): number {
@@ -574,14 +619,32 @@ export class GameScene extends Phaser.Scene {
     const snap = this.onlineCache;
     if (!snap) return [];
     const alpha = this.onlineInterpAlpha();
+    const tickSec = 1 / GAME.tickHz;
     return snap.tanks.map((t) => {
+      if (t.id === this.sessionId && this.predictedSelf) {
+        return {
+          ...t,
+          x: this.predictedSelf.x,
+          y: this.predictedSelf.y,
+          angle: this.predictedSelf.angle,
+        };
+      }
       const prev = snap.prevTanks.get(t.id);
       if (!prev) return t;
+      let x = prev.x + (t.x - prev.x) * alpha;
+      let y = prev.y + (t.y - prev.y) * alpha;
+      if (alpha > 1) {
+        const vx = (t.x - prev.x) / tickSec;
+        const vy = (t.y - prev.y) / tickSec;
+        const extra = (alpha - 1) * tickSec;
+        x += vx * extra;
+        y += vy * extra;
+      }
       return {
         ...t,
-        x: prev.x + (t.x - prev.x) * alpha,
-        y: prev.y + (t.y - prev.y) * alpha,
-        angle: this.lerpAngle(prev.angle, t.angle, alpha),
+        x,
+        y,
+        angle: this.lerpAngle(prev.angle, t.angle, Math.min(1, alpha)),
       };
     });
   }
@@ -626,7 +689,9 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'local') {
       this.updateLocal(Math.min(0.05, dtMs / 1000));
     } else {
+      const frameDt = Math.min(0.05, dtMs / 1000);
       this.updateOnlineInput();
+      this.updateOnlinePrediction(frameDt);
       this.renderOnlineFrame();
     }
     this.updateChatBubblePositions();
@@ -725,8 +790,9 @@ export class GameScene extends Phaser.Scene {
     const keys = this.readKeys(this.keys.p1);
     const key = `${keys.left?1:0}${keys.right?1:0}${keys.forward?1:0}${keys.back?1:0}${keys.fire?1:0}`;
     const now = performance.now();
-    // Send on change immediately; otherwise at ~40Hz for snappier remote control
-    if (key === this.lastInputKey && now - this.lastInputSentAt < 25) return;
+    const active = keys.left || keys.right || keys.forward || keys.back || keys.fire;
+    const minGap = active ? 16 : 40;
+    if (key === this.lastInputKey && now - this.lastInputSentAt < minGap) return;
     this.lastInputKey = key;
     this.lastInputSentAt = now;
     this.seq += 1;

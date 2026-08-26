@@ -269,7 +269,11 @@ describe('GameSim', () => {
       life: 10,
       radius: GAME.bulletRadius,
     });
-    const events = sim.step(1 / GAME.tickHz);
+    let events: ReturnType<typeof sim.step> = [];
+    for (let i = 0; i < 10; i++) {
+      events.push(...sim.step(1 / GAME.tickHz));
+      if (!sim.getSnapshot().tanks.find((t) => t.id === 'b')!.alive) break;
+    }
     expect(events.some((e) => e.type === 'hit' && e.tankId === 'b')).toBe(true);
     expect(sim.getSnapshot().tanks.find((t) => t.id === 'b')!.alive).toBe(false);
   });

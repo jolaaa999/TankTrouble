@@ -39,7 +39,7 @@ export function resolveCircleWalls(
   x: number,
   y: number,
   radius: number,
-  walls: WallSegment[],
+  walls: readonly WallSegment[],
   iterations = 3,
 ): { x: number; y: number } {
   let cx = x;
