@@ -114,6 +114,9 @@ export class GameScene extends Phaser.Scene {
   private onlineCache: OnlineStateCache | null = null;
   /** Continuous local prediction for own tank (advances each frame). */
   private predictedSelf: TankMotionState | null = null;
+  /** Visual pose — follows prediction instantly, gently drifts toward server (no hard snap). */
+  private displaySelf: { x: number; y: number; angle: number } | null = null;
+  private serverSelfPose: { x: number; y: number; angle: number } | null = null;
   private predictAcc = 0;
   private statusText: Phaser.GameObjects.Text | null = null;
   private scoreText: Phaser.GameObjects.Text | null = null;
@@ -165,6 +168,8 @@ export class GameScene extends Phaser.Scene {
     this.onlineWalls = [];
     this.onlineCache = null;
     this.predictedSelf = null;
+    this.displaySelf = null;
+    this.serverSelfPose = null;
     this.predictAcc = 0;
     this.simAcc = 0;
     this.lastInputSentAt = 0;
@@ -467,6 +472,8 @@ export class GameScene extends Phaser.Scene {
         this.applyMazeLayout(maze.cols, maze.rows);
         this.mazeView?.draw(maze, this.offsetX, this.offsetY);
         this.predictedSelf = null;
+        this.displaySelf = null;
+        this.serverSelfPose = null;
         this.predictAcc = 0;
       }
 
@@ -551,8 +558,12 @@ export class GameScene extends Phaser.Scene {
       };
 
       const me = tanks.find((t) => t.id === this.sessionId);
-      if (me) this.reconcilePredictedSelf(me);
-      else this.predictedSelf = null;
+      if (me) this.syncOnlineSelfFromServer(me);
+      else {
+        this.predictedSelf = null;
+        this.displaySelf = null;
+        this.serverSelfPose = null;
+      }
 
       const tankList: { id: string; x: number; y: number; alive: boolean }[] = tanks.map((t) => ({
         id: t.id,
@@ -608,10 +619,10 @@ export class GameScene extends Phaser.Scene {
     return Math.min(1, (performance.now() - this.onlineCache.receivedAt) / tickMs);
   }
 
-  /**
-   * Soft-correct prediction against server. Lateral-only while driving avoids W/S stutter.
-   */
-  private reconcilePredictedSelf(serverMe: OnlineTankSnap): void {
+  /** Sync buffs + server pose; only snap on spawn/death — never hard-correct prediction while alive. */
+  private syncOnlineSelfFromServer(serverMe: OnlineTankSnap): void {
+    this.serverSelfPose = { x: serverMe.x, y: serverMe.y, angle: serverMe.angle };
+
     if (!serverMe.alive) {
       this.predictedSelf = {
         x: serverMe.x,
@@ -621,6 +632,7 @@ export class GameScene extends Phaser.Scene {
         turboTime: serverMe.turboTime,
         turboPlus: serverMe.turboPlus,
       };
+      this.displaySelf = { x: serverMe.x, y: serverMe.y, angle: serverMe.angle };
       return;
     }
 
@@ -633,44 +645,66 @@ export class GameScene extends Phaser.Scene {
         turboTime: serverMe.turboTime,
         turboPlus: serverMe.turboPlus,
       };
+      this.displaySelf = { x: serverMe.x, y: serverMe.y, angle: serverMe.angle };
       return;
     }
 
     this.predictedSelf.freezeTime = serverMe.freezeTime;
     this.predictedSelf.turboTime = serverMe.turboTime;
     this.predictedSelf.turboPlus = serverMe.turboPlus;
+  }
 
-    const dx = serverMe.x - this.predictedSelf.x;
-    const dy = serverMe.y - this.predictedSelf.y;
-    const err = Math.hypot(dx, dy);
-    if (err > 56) {
-      this.predictedSelf.x = serverMe.x;
-      this.predictedSelf.y = serverMe.y;
-      this.predictedSelf.angle = serverMe.angle;
+  /** Render pose = prediction (instant input) + optional gentle visual drift toward server. */
+  private stepDisplaySelf(frameDt: number): void {
+    if (!this.predictedSelf) {
+      this.displaySelf = null;
       return;
     }
 
+    if (!this.displaySelf) {
+      this.displaySelf = {
+        x: this.predictedSelf.x,
+        y: this.predictedSelf.y,
+        angle: this.predictedSelf.angle,
+      };
+    }
+
+    // Always mirror prediction first — keeps movement real-time on screen
+    this.displaySelf.x = this.predictedSelf.x;
+    this.displaySelf.y = this.predictedSelf.y;
+    this.displaySelf.angle = this.predictedSelf.angle;
+
+    const server = this.serverSelfPose;
+    if (!server) return;
+
+    const dx = server.x - this.displaySelf.x;
+    const dy = server.y - this.displaySelf.y;
+    const err = Math.hypot(dx, dy);
+    if (err < 0.5) return;
+
     const keys = this.readKeys(this.keys.p1);
     const moving = keys.forward || keys.back;
-    if (moving && err < 36) {
-      const f = { x: Math.cos(this.predictedSelf.angle), y: Math.sin(this.predictedSelf.angle) };
+    const blend = 1 - Math.exp(-5 * frameDt);
+
+    if (moving) {
+      // Lateral-only visual nudge while driving — never pull backward along facing
+      const f = { x: Math.cos(this.displaySelf.angle), y: Math.sin(this.displaySelf.angle) };
       const along = dx * f.x + dy * f.y;
       const latX = dx - along * f.x;
       const latY = dy - along * f.y;
-      this.predictedSelf.x += latX * 0.18;
-      this.predictedSelf.y += latY * 0.18;
+      this.displaySelf.x += latX * blend * 0.35;
+      this.displaySelf.y += latY * blend * 0.35;
       if (along > 0) {
-        this.predictedSelf.x += along * f.x * 0.12;
-        this.predictedSelf.y += along * f.y * 0.12;
+        this.displaySelf.x += along * f.x * blend * 0.15;
+        this.displaySelf.y += along * f.y * blend * 0.15;
       }
-    } else if (err > 2) {
-      const k = Math.min(0.22, 0.06 + err * 0.004);
-      this.predictedSelf.x += dx * k;
-      this.predictedSelf.y += dy * k;
+    } else if (err > 1) {
+      this.displaySelf.x += dx * blend * 0.2;
+      this.displaySelf.y += dy * blend * 0.2;
     }
 
     if (!keys.left && !keys.right) {
-      this.predictedSelf.angle = this.lerpAngle(this.predictedSelf.angle, serverMe.angle, 0.2);
+      this.displaySelf.angle = this.lerpAngle(this.displaySelf.angle, server.angle, blend * 0.25);
     }
   }
 
@@ -709,12 +743,12 @@ export class GameScene extends Phaser.Scene {
     if (!snap) return [];
     const alpha = this.onlineInterpAlpha();
     return snap.tanks.map((t) => {
-      if (t.id === this.sessionId && this.predictedSelf) {
+      if (t.id === this.sessionId && this.displaySelf) {
         return {
           ...t,
-          x: this.predictedSelf.x,
-          y: this.predictedSelf.y,
-          angle: this.predictedSelf.angle,
+          x: this.displaySelf.x,
+          y: this.displaySelf.y,
+          angle: this.displaySelf.angle,
         };
       }
       const prev = snap.prevTanks.get(t.id);
@@ -772,6 +806,7 @@ export class GameScene extends Phaser.Scene {
       const frameDt = Math.min(0.05, dtMs / 1000);
       this.updateOnlineInput();
       this.stepPredictedSelf(frameDt);
+      this.stepDisplaySelf(frameDt);
       this.renderOnlineFrame();
     }
     this.updateChatBubblePositions();
