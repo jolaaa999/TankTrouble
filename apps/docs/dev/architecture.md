@@ -15,9 +15,10 @@ TankTrouble/
 
 ## 数据流（联机）
 
-1. 客户端发送 `input` 消息（移动 + 开火）
-2. `BattleRoom` 以 **30Hz** 固定步长驱动 `GameSim`
-3. 仿真结果同步到 Colyseus Schema → 客户端渲染
+1. 客户端发送 `input` 消息（移动 + 开火，带递增 `seq`）
+2. `BattleRoom` 以 **60Hz** 固定步长驱动 `GameSim`，并同步每位玩家的 **`lastInputSeq`**
+3. 客户端：帧间本地预测；仅在 `lastInputSeq` 变化时以服务器姿态为基准 **回放未确认输入**
+4. 仿真结果同步到 Colyseus Schema → 客户端渲染（本地坦克用预测位置，他人坦克插值）
 
 ## 技能配置
 

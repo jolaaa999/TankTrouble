@@ -117,6 +117,9 @@ export class GameScene extends Phaser.Scene {
   /** Sent inputs for replay after each server snapshot. */
   private inputBuffer: InputMessage[] = [];
   private readonly maxInputBuffer = 120;
+  /** Skip one predict step after reconcile to avoid double-simulating the same input. */
+  private skipPredictStep = false;
+  private lastReconciledInputSeq = -1;
   private predictAcc = 0;
   private statusText: Phaser.GameObjects.Text | null = null;
   private scoreText: Phaser.GameObjects.Text | null = null;
@@ -169,6 +172,8 @@ export class GameScene extends Phaser.Scene {
     this.onlineCache = null;
     this.predictedSelf = null;
     this.inputBuffer = [];
+    this.skipPredictStep = false;
+    this.lastReconciledInputSeq = -1;
     this.predictAcc = 0;
     this.simAcc = 0;
     this.lastInputSentAt = 0;
@@ -473,6 +478,7 @@ export class GameScene extends Phaser.Scene {
         this.mazeView?.draw(maze, this.offsetX, this.offsetY);
         this.predictedSelf = null;
         this.inputBuffer = [];
+        this.lastReconciledInputSeq = -1;
         this.predictAcc = 0;
       }
 
@@ -562,6 +568,7 @@ export class GameScene extends Phaser.Scene {
       else {
         this.predictedSelf = null;
         this.inputBuffer = [];
+        this.lastReconciledInputSeq = -1;
       }
 
       const tankList: { id: string; x: number; y: number; alive: boolean }[] = tanks.map((t) => ({
@@ -620,6 +627,7 @@ export class GameScene extends Phaser.Scene {
 
   /**
    * Authoritative server pose + replay unacknowledged inputs — keeps prediction aligned for firing/pickups.
+   * Full reset only when lastInputSeq advances (avoids jitter on unrelated state patches).
    */
   private reconcileWithInputReplay(
     serverMe: OnlineTankSnap,
@@ -636,9 +644,24 @@ export class GameScene extends Phaser.Scene {
         turboPlus: serverMe.turboPlus,
       };
       this.inputBuffer = [];
+      this.lastReconciledInputSeq = -1;
       return;
     }
 
+    const needsFull =
+      !this.predictedSelf ||
+      lastInputSeq !== this.lastReconciledInputSeq;
+
+    if (!needsFull) {
+      if (this.predictedSelf) {
+        this.predictedSelf.freezeTime = serverMe.freezeTime;
+        this.predictedSelf.turboTime = serverMe.turboTime;
+        this.predictedSelf.turboPlus = serverMe.turboPlus;
+      }
+      return;
+    }
+
+    this.lastReconciledInputSeq = lastInputSeq;
     this.predictedSelf = {
       x: serverMe.x,
       y: serverMe.y,
@@ -651,7 +674,11 @@ export class GameScene extends Phaser.Scene {
     if (this.onlineWalls.length === 0) return;
 
     const pending = this.inputBuffer.filter((i) => i.seq > lastInputSeq);
-    const maxReplay = 15;
+    const tickMs = 1000 / GAME.tickHz;
+    const snapshotAge = this.onlineCache
+      ? Math.max(0, performance.now() - this.onlineCache.receivedAt)
+      : 0;
+    const maxReplay = Math.min(12, Math.ceil(snapshotAge / tickMs) + 2);
     const steeringMissile = bullets.some(
       (b) => b.ownerId === this.sessionId && b.kind === 'homing',
     );
@@ -664,6 +691,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.inputBuffer = this.inputBuffer.filter((i) => i.seq > lastInputSeq);
+    this.skipPredictStep = true;
+    this.predictAcc = 0;
   }
 
   private pushInputBuffer(msg: InputMessage): void {
@@ -674,6 +703,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private stepPredictedSelf(frameDt: number): void {
+    if (this.skipPredictStep) {
+      this.skipPredictStep = false;
+      return;
+    }
     if (!this.predictedSelf || !this.onlineCache || this.matchOver) return;
     const me = this.onlineCache.tanks.find((t) => t.id === this.sessionId);
     if (!me?.alive || this.onlineWalls.length === 0) return;
