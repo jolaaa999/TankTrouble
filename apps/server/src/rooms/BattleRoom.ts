@@ -340,6 +340,7 @@ export class BattleRoom extends Room<BattleState> {
       ts.team = t.team;
       ts.shieldTime = t.shieldTime;
       ts.turboTime = t.turboTime;
+      ts.turboPlus = t.turboPlus;
       ts.freezeTime = t.freezeTime;
       ts.weapon = t.weapon;
       ts.weaponPlus = t.weaponPlus;
@@ -368,6 +369,7 @@ export class BattleRoom extends Room<BattleState> {
       bs.vx = b.vx;
       bs.vy = b.vy;
       bs.kind = b.kind;
+      bs.ownerId = b.ownerId;
     }
     for (const key of [...this.state.bullets.keys()]) {
       if (!seenBullets.has(key)) this.state.bullets.delete(key);

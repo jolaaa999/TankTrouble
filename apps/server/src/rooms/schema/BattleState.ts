@@ -18,6 +18,7 @@ export class TankState extends Schema {
   @type('number') team = 0;
   @type('number') shieldTime = 0;
   @type('number') turboTime = 0;
+  @type('boolean') turboPlus = false;
   @type('number') freezeTime = 0;
   @type('string') weapon = 'default';
   @type('boolean') weaponPlus = false;
@@ -35,6 +36,7 @@ export class BulletState extends Schema {
   @type('number') vx = 0;
   @type('number') vy = 0;
   @type('string') kind = 'normal';
+  @type('string') ownerId = '';
 }
 
 export class BeamState extends Schema {

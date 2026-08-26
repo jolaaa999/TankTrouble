@@ -49,6 +49,7 @@ type OnlineTankSnap = {
   colorIndex: number;
   shieldTime: number;
   turboTime: number;
+  turboPlus: boolean;
   freezeTime: number;
   weapon: string;
   weaponPlus: boolean;
@@ -63,7 +64,7 @@ type OnlineStateCache = {
   phase: string;
   tanks: OnlineTankSnap[];
   prevTanks: Map<string, { x: number; y: number; angle: number }>;
-  bullets: { id: number; x: number; y: number; vx: number; vy: number; kind: string }[];
+  bullets: { id: number; x: number; y: number; vx: number; vy: number; kind: string; ownerId: string }[];
   beams: { id: number; x1: number; y1: number; x2: number; y2: number; life: number; kind: string }[];
   pickups: { id: number; kind: PickupKind; x: number; y: number }[];
   mines: { id: number; x: number; y: number; visible: boolean; triggered: boolean }[];
@@ -492,18 +493,39 @@ export class GameScene extends Phaser.Scene {
       }
 
       const tanks: OnlineTankSnap[] = [];
-      state.tanks.forEach((t) => tanks.push({ ...t }));
-      const bullets: OnlineStateCache['bullets'] = [];
-      state.bullets.forEach((b) =>
-        bullets.push({
-          id: b.id,
-          x: b.x,
-          y: b.y,
-          vx: b.vx ?? 0,
-          vy: b.vy ?? 0,
-          kind: b.kind,
+      state.tanks.forEach((t) =>
+        tanks.push({
+          id: t.id,
+          x: t.x,
+          y: t.y,
+          angle: t.angle,
+          alive: t.alive,
+          colorIndex: t.colorIndex,
+          shieldTime: t.shieldTime,
+          turboTime: t.turboTime,
+          turboPlus: Boolean((t as { turboPlus?: boolean }).turboPlus),
+          freezeTime: t.freezeTime,
+          weapon: t.weapon,
+          weaponPlus: t.weaponPlus,
+          showLaserSight: t.showLaserSight,
+          isBot: t.isBot,
+          invisTime: t.invisTime,
+          umbrellaTime: t.umbrellaTime,
         }),
       );
+      const bullets: OnlineStateCache['bullets'] = [];
+      state.bullets.forEach((b) => {
+        const bullet = b as typeof b & { ownerId?: string };
+        bullets.push({
+          id: bullet.id,
+          x: bullet.x,
+          y: bullet.y,
+          vx: bullet.vx ?? 0,
+          vy: bullet.vy ?? 0,
+          kind: bullet.kind,
+          ownerId: bullet.ownerId ?? '',
+        });
+      });
       const beams: OnlineStateCache['beams'] = [];
       state.beams.forEach((b) => beams.push({ ...b }));
       const pickups: OnlineStateCache['pickups'] = [];
@@ -529,7 +551,7 @@ export class GameScene extends Phaser.Scene {
       };
 
       const me = tanks.find((t) => t.id === this.sessionId);
-      if (me) this.syncPredictedSelfFromServer(me);
+      if (me) this.reconcilePredictedSelf(me);
       else this.predictedSelf = null;
 
       const tankList: { id: string; x: number; y: number; alive: boolean }[] = tanks.map((t) => ({
@@ -587,23 +609,69 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Init / buff sync only — no position/angle correction (avoids rubber-band hitch).
-   * Pose is fully client-predicted until next round / death respawn.
+   * Soft-correct prediction against server. Lateral-only while driving avoids W/S stutter.
    */
-  private syncPredictedSelfFromServer(serverMe: OnlineTankSnap): void {
-    if (!this.predictedSelf || !serverMe.alive) {
+  private reconcilePredictedSelf(serverMe: OnlineTankSnap): void {
+    if (!serverMe.alive) {
       this.predictedSelf = {
         x: serverMe.x,
         y: serverMe.y,
         angle: serverMe.angle,
         freezeTime: serverMe.freezeTime,
         turboTime: serverMe.turboTime,
-        turboPlus: false,
+        turboPlus: serverMe.turboPlus,
       };
       return;
     }
+
+    if (!this.predictedSelf) {
+      this.predictedSelf = {
+        x: serverMe.x,
+        y: serverMe.y,
+        angle: serverMe.angle,
+        freezeTime: serverMe.freezeTime,
+        turboTime: serverMe.turboTime,
+        turboPlus: serverMe.turboPlus,
+      };
+      return;
+    }
+
     this.predictedSelf.freezeTime = serverMe.freezeTime;
     this.predictedSelf.turboTime = serverMe.turboTime;
+    this.predictedSelf.turboPlus = serverMe.turboPlus;
+
+    const dx = serverMe.x - this.predictedSelf.x;
+    const dy = serverMe.y - this.predictedSelf.y;
+    const err = Math.hypot(dx, dy);
+    if (err > 56) {
+      this.predictedSelf.x = serverMe.x;
+      this.predictedSelf.y = serverMe.y;
+      this.predictedSelf.angle = serverMe.angle;
+      return;
+    }
+
+    const keys = this.readKeys(this.keys.p1);
+    const moving = keys.forward || keys.back;
+    if (moving && err < 36) {
+      const f = { x: Math.cos(this.predictedSelf.angle), y: Math.sin(this.predictedSelf.angle) };
+      const along = dx * f.x + dy * f.y;
+      const latX = dx - along * f.x;
+      const latY = dy - along * f.y;
+      this.predictedSelf.x += latX * 0.18;
+      this.predictedSelf.y += latY * 0.18;
+      if (along > 0) {
+        this.predictedSelf.x += along * f.x * 0.12;
+        this.predictedSelf.y += along * f.y * 0.12;
+      }
+    } else if (err > 2) {
+      const k = Math.min(0.22, 0.06 + err * 0.004);
+      this.predictedSelf.x += dx * k;
+      this.predictedSelf.y += dy * k;
+    }
+
+    if (!keys.left && !keys.right) {
+      this.predictedSelf.angle = this.lerpAngle(this.predictedSelf.angle, serverMe.angle, 0.2);
+    }
   }
 
   private stepPredictedSelf(frameDt: number): void {
@@ -613,12 +681,16 @@ export class GameScene extends Phaser.Scene {
 
     this.predictedSelf.freezeTime = me.freezeTime;
     this.predictedSelf.turboTime = me.turboTime;
+    this.predictedSelf.turboPlus = me.turboPlus;
     if (me.freezeTime > 0) return;
 
     this.predictAcc += Math.min(0.05, frameDt);
     if (this.predictAcc > 0.1) this.predictAcc = 0.1;
     const input = this.readKeys(this.keys.p1);
-    const steeringLocked = me.weapon === 'homing';
+    const steeringMissile = this.onlineCache.bullets.some(
+      (b) => b.ownerId === this.sessionId && b.kind === 'homing',
+    );
+    const steeringLocked = Boolean(steeringMissile && me.weapon === 'homing');
     while (this.predictAcc >= this.fixedDt) {
       stepTankMotion(this.predictedSelf, input, this.onlineWalls, this.fixedDt, steeringLocked);
       this.predictAcc -= this.fixedDt;
@@ -796,11 +868,10 @@ export class GameScene extends Phaser.Scene {
   private updateOnlineInput(): void {
     if (!this.room || this.matchOver) return;
     const keys = this.readKeys(this.keys.p1);
-    const key = `${keys.left?1:0}${keys.right?1:0}${keys.forward?1:0}${keys.back?1:0}${keys.fire?1:0}`;
+    const key = `${keys.left ? 1 : 0}${keys.right ? 1 : 0}${keys.forward ? 1 : 0}${keys.back ? 1 : 0}${keys.fire ? 1 : 0}`;
     const now = performance.now();
-    const driving = keys.left || keys.right || keys.forward || keys.back;
-    // Cap at ~60Hz while driving; changes still send immediately
-    const minGap = driving ? 16 : keys.fire ? 16 : 50;
+    const active = keys.left || keys.right || keys.forward || keys.back || keys.fire;
+    const minGap = active ? 0 : 100;
     if (key === this.lastInputKey && now - this.lastInputSentAt < minGap) return;
     this.lastInputKey = key;
     this.lastInputSentAt = now;
