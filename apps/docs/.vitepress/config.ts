@@ -46,7 +46,7 @@ export default defineConfig({
       {
         text: '在线演示',
         items: [
-          { text: 'V0.3.0 当前版本', link: '/demo/play' },
+          { text: 'V0.3.1 当前版本', link: '/demo/play' },
           { text: '版本对比', link: '/demo/versions' },
         ],
       },

@@ -10,11 +10,13 @@ import {
   type PickupKind,
   type CustomMazeLayout,
   type WeaponKind,
+  type SimEvent,
 } from '@tanktrouble/shared';
 import { MazeView } from '../render/MazeView';
 import { TankView } from '../render/TankView';
 import { BulletView } from '../render/BulletView';
 import { MineView, PickupView } from '../render/PickupView';
+import { getGameAudio } from '../audio/GameAudio';
 import type { Room } from 'colyseus.js';
 
 export type GameSceneData =
@@ -68,6 +70,8 @@ export class GameScene extends Phaser.Scene {
   private lastInputSentAt = 0;
   private lastInputKey = '';
   private lastScoreKey = '';
+  private lastSnapSeed = -1;
+  private readonly audio = getGameAudio();
   /** Local sim at 60Hz for snappy no-inertia feel; online stays server 30Hz. */
   private readonly fixedDt = 1 / 60;
 
@@ -101,6 +105,8 @@ export class GameScene extends Phaser.Scene {
     this.lastInputSentAt = 0;
     this.lastInputKey = '';
     this.lastScoreKey = '';
+    this.lastSnapSeed = -1;
+    this.audio.resetBattleState();
     this.clearAnnounceTexts();
   }
 
@@ -179,6 +185,8 @@ export class GameScene extends Phaser.Scene {
       this.statusText.setText('联机对战');
       this.bindOnline();
     }
+
+    void this.audio.unlock().then(() => this.audio.startBattleBgm());
   }
 
   private layoutFromSim(): void {
@@ -305,6 +313,28 @@ export class GameScene extends Phaser.Scene {
       this.drawFx(state.fx ?? new Map());
       this.drawOnlineLaserSights(state.tanks);
 
+      const tankList: { id: string; x: number; y: number; alive: boolean }[] = [];
+      state.tanks.forEach((t) =>
+        tankList.push({ id: t.id, x: t.x, y: t.y, alive: t.alive }),
+      );
+      const pickupList: { id: number }[] = [];
+      state.pickups.forEach((p) => pickupList.push({ id: p.id }));
+      const fxList: {
+        id: number;
+        kind: string;
+        radius: number;
+        label?: string;
+      }[] = [];
+      (state.fx ?? new Map()).forEach((f) => fxList.push(f));
+
+      if (this.onlineSeed !== this.lastSnapSeed) {
+        this.audio.resetPickups();
+        this.lastSnapSeed = this.onlineSeed;
+      }
+      this.audio.processTanks(tankList, 1 / 60);
+      this.audio.processPickups(pickupList);
+      this.audio.processFx(fxList);
+
       if (state.phase === 'matchEnd' && !this.matchOver) {
         this.matchOver = true;
         const msg =
@@ -368,17 +398,27 @@ export class GameScene extends Phaser.Scene {
     if (this.simAcc > 0.1) this.simAcc = 0.1;
 
     let prevSeed = this.sim.maze.seed;
+    const stepEvents: SimEvent[] = [];
     while (this.simAcc >= this.fixedDt) {
       this.seq += 1;
       this.sim.applyInput('p1', { seq: this.seq, ...this.readKeys(this.keys.p1) });
       this.sim.applyInput('p2', { seq: this.seq, ...this.readKeys(this.keys.p2) });
       prevSeed = this.sim.maze.seed;
-      this.sim.step(this.fixedDt);
+      stepEvents.push(...this.sim.step(this.fixedDt));
       this.simAcc -= this.fixedDt;
     }
+    this.audio.handleSimEvents(stepEvents);
     const snap = this.sim.getSnapshot();
 
     if (snap.seed !== prevSeed) this.layoutFromSim();
+    if (snap.seed !== this.lastSnapSeed) {
+      this.audio.resetPickups();
+      this.lastSnapSeed = snap.seed;
+    }
+
+    this.audio.processTanks(snap.tanks, frameDt);
+    this.audio.processPickups(snap.pickups);
+    this.audio.processFx(snap.fx);
 
     this.renderScores(snap.scores, snap.roundIndex, snap.teamScores);
     if (snap.phase === 'intermission') {
@@ -983,6 +1023,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   shutdown(): void {
+    this.audio.stopBgm();
+    this.audio.resetBattleState();
     this.mazeView?.destroy();
     this.laserSight?.destroy();
     this.beamGfx?.destroy();

@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { VERSION, type MatchMode } from '@tanktrouble/shared';
 import { getColyseusUrl, pingServer } from '../net/ColyseusClient';
+import { getGameAudio } from '../audio/GameAudio';
 
 const GITHUB_URL = 'https://github.com/jolaaa999/TankTrouble';
 
@@ -104,6 +105,8 @@ export class MenuScene extends Phaser.Scene {
     this.makeLinkButton(width / 2 - 72, 628, 128, '文档', docsUrl(), 0x5e35b1);
     this.makeLinkButton(width / 2 + 72, 628, 128, 'GitHub', GITHUB_URL, 0x37474f);
     this.makeFooter(width, height);
+
+    void getGameAudio().unlock().then(() => getGameAudio().startMenuBgm());
 
     this.refreshAiUi();
   }
@@ -285,5 +288,9 @@ export class MenuScene extends Phaser.Scene {
     bg.on('pointerover', () => bg.setFillStyle(hover));
     bg.on('pointerout', () => bg.setFillStyle(color));
     bg.on('pointerdown', onClick);
+  }
+
+  shutdown(): void {
+    getGameAudio().stopBgm();
   }
 }

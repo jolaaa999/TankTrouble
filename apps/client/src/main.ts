@@ -34,7 +34,6 @@ const config: Phaser.Types.Core.GameConfig = {
   },
   // Skip unused Phaser systems for less overhead
   physics: undefined,
-  audio: { noAudio: true },
   scene: [BootScene, MenuScene, MazeEditorScene, LobbyScene, GameScene, ResultScene],
   callbacks: {
     postBoot: (game) => {
