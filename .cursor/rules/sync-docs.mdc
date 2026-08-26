@@ -1,0 +1,38 @@
+---
+description: 改游戏/配置/联机时同步更新 VitePress 文档与 skills.md
+alwaysApply: true
+---
+
+# 文档与代码同步
+
+本项目的**对外文档**在 `apps/docs/`（VitePress，线上 `/docs/`）。做功能或玩法调整时，**同一轮改动里一并更新文档**，不要只改代码。
+
+## 必须更新的时机
+
+| 改动类型 | 至少更新 |
+|----------|----------|
+| 技能增删、数值、字母、加强版 `+` | `packages/shared/src/skills.ts`、`docs/skills.md`、`apps/docs/game/skills.md`、`apps/docs/game/skill-grid.md`（SkillGrid 组件） |
+| 版本号 `VERSION` | `packages/shared/src/config.ts`、`apps/docs/changelog.md`、文档首页/演示页版本 pill |
+| 联机 URL、部署、环境变量 | `README.md`、`apps/docs/guide/multiplayer.md`、`apps/docs/guide/quickstart.md` |
+| 模式/规则/操作键 | `apps/docs/game/overview.md`、`apps/docs/game/modes.md` |
+| 主菜单文案、外链 | `apps/docs/demo/play.md`（若影响玩家可见说明） |
+| 架构/脚本/构建 | `apps/docs/dev/architecture.md`、`apps/docs/dev/local-dev.md` |
+
+## 双份技能说明
+
+- `docs/skills.md` — 仓库内 Markdown 副本
+- `apps/docs/game/skills.md` — 文档站正文
+
+**内容应保持一致**；改技能时两处一起改，或改完一处复制到另一处。
+
+## 文档构建与部署
+
+- 本地预览：`pnpm dev:docs` → http://localhost:27493/docs/
+- 线上：`build:web` 会把 VitePress 构建结果复制到 `apps/client/public/docs/`，随 Vercel 部署
+- 不要提交 `apps/client/public/docs/`（已在 `.gitignore`）
+
+## 完成前自检
+
+1. 文档描述与 `GameSim` / `config.ts` 行为一致
+2. 涉及新功能时更新 `apps/docs/changelog.md`
+3. 需要时跑 `pnpm --filter @tanktrouble/docs build` 确认无构建错误

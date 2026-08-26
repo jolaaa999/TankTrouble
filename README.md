@@ -17,7 +17,7 @@
 - 击杀对手得 1 分，进入下一小局（新迷宫 + 乱序出生点）
 - 先到 **5 分** 获胜（`GAME.scoreToWin` 可改）
 - 场上彩色方块为可拾取技能（**A–Z 共 26 种**，各有加强版 `+`）
-- **文档站**：`pnpm dev:docs` → http://localhost:27493/docs/ · 线上 https://tank-trouble-ten.vercel.app/docs/
+- **文档站**：https://tank-trouble-ten.vercel.app/docs/（源码 `apps/docs/`，改功能时请同步更新文档）
 
 ## 远程联机（重要）
 
