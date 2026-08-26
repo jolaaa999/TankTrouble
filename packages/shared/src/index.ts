@@ -1,4 +1,4 @@
-export { VERSION, GAME, PICKUP_POOL, CLASSIC_MATCH, MEGA_MATCH, mazeSizeForRound } from './config.js';
+export { VERSION, GAME, PICKUP_POOL, CLASSIC_MATCH, MEGA_MATCH, mazeSizeForRound, SCORE_TO_WIN_PRESETS, defaultScoreToWin, clampScoreToWin, nextScorePreset } from './config.js';
 export type { MatchMode, MatchConfig } from './config.js';
 export type { SkillId, WeaponKind, PickupKind } from './skills.js';
 export {

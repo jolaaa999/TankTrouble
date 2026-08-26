@@ -113,7 +113,7 @@ export class HallScene extends Phaser.Scene {
       const full = room.playerCount >= room.rosterSize;
       const modeLabel = room.mode === 'mega' ? `超多人 ${room.rosterSize} 席` : '经典 4 人';
       const aiLabel = room.fillWithBots ? ' · AI 凑满' : '';
-      const label = `${room.roomCode}   ${modeLabel}   ${room.playerCount}/${room.rosterSize}${aiLabel}${full ? '   已满' : ''}`;
+      const label = `${room.roomCode}   ${modeLabel}   先到 ${room.scoreToWin}   ${room.playerCount}/${room.rosterSize}${aiLabel}${full ? '   已满' : ''}`;
 
       const bg = this.add
         .rectangle(x, y, listW, ROW_H - 6, full ? 0x37474f : 0x2f6fed, full ? 0.55 : 0.92)

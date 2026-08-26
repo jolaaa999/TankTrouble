@@ -1,5 +1,10 @@
 import Phaser from 'phaser';
-import { VERSION, type MatchMode } from '@tanktrouble/shared';
+import {
+  VERSION,
+  defaultScoreToWin,
+  nextScorePreset,
+  type MatchMode,
+} from '@tanktrouble/shared';
 import { getColyseusUrl, pingServer } from '../net/ColyseusClient';
 import { getGameAudio } from '../audio/GameAudio';
 
@@ -18,12 +23,15 @@ export class MenuScene extends Phaser.Scene {
   private fillWithBots = false;
   private matchMode: MatchMode = 'classic';
   private rosterSize = 8;
+  private scoreToWin = defaultScoreToWin('classic');
   private aiToggleLabel: Phaser.GameObjects.Text | null = null;
   private aiToggleBg: Phaser.GameObjects.Rectangle | null = null;
   private modeToggleLabel: Phaser.GameObjects.Text | null = null;
   private modeToggleBg: Phaser.GameObjects.Rectangle | null = null;
   private rosterLabel: Phaser.GameObjects.Text | null = null;
   private rosterBg: Phaser.GameObjects.Rectangle | null = null;
+  private scoreLabel: Phaser.GameObjects.Text | null = null;
+  private scoreBg: Phaser.GameObjects.Rectangle | null = null;
   private soloBtnBg: Phaser.GameObjects.Rectangle | null = null;
   private soloBtnLabel: Phaser.GameObjects.Text | null = null;
   private tipText: Phaser.GameObjects.Text | null = null;
@@ -67,36 +75,39 @@ export class MenuScene extends Phaser.Scene {
     this.makeAiToggle(width / 2, 178);
     this.makeModeToggle(width / 2, 228);
     this.makeRosterToggle(width / 2, 278);
+    this.makeScoreToggle(width / 2, 328);
 
-    this.makeButton(width / 2, 338, '本地双人', () => {
+    this.makeButton(width / 2, 390, '本地双人', () => {
       this.scene.start('game', {
         mode: 'local',
         fillBots: this.fillWithBots,
         matchMode: this.matchMode,
         rosterSize: this.matchMode === 'mega' ? this.rosterSize : 4,
+        scoreToWin: this.scoreToWin,
       });
     });
-    this.makeSoloButton(width / 2, 390);
-    this.makeButton(width / 2, 442, '创建房间', () => {
+    this.makeSoloButton(width / 2, 442);
+    this.makeButton(width / 2, 494, '创建房间', () => {
       this.scene.start('lobby', {
         action: 'create',
         fillWithBots: this.fillWithBots,
         mode: this.matchMode,
         rosterSize: this.matchMode === 'mega' ? this.rosterSize : 4,
+        scoreToWin: this.scoreToWin,
       });
     });
-    this.makeButton(width / 2, 494, '加入房间', () => {
+    this.makeButton(width / 2, 546, '加入房间', () => {
       this.scene.start('lobby', { action: 'join' });
     });
-    this.makeButton(width / 2, 536, '房间大厅', () => {
+    this.makeButton(width / 2, 588, '房间大厅', () => {
       this.scene.start('hall');
     }, 0x5e35b1);
-    this.makeButton(width / 2, 578, '地图编辑器', () => {
+    this.makeButton(width / 2, 630, '地图编辑器', () => {
       this.scene.start('mazeEditor');
     }, 0x00838f);
 
     this.tipText = this.add
-      .text(width / 2, 620, '', {
+      .text(width / 2, 672, '', {
         fontFamily: 'Segoe UI, sans-serif',
         fontSize: '11px',
         color: '#90a4ae',
@@ -105,8 +116,8 @@ export class MenuScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    this.makeLinkButton(width / 2 - 72, 670, 128, '文档', docsUrl(), 0x5e35b1);
-    this.makeLinkButton(width / 2 + 72, 670, 128, 'GitHub', GITHUB_URL, 0x37474f);
+    this.makeLinkButton(width / 2 - 72, 722, 128, '文档', docsUrl(), 0x5e35b1);
+    this.makeLinkButton(width / 2 + 72, 722, 128, 'GitHub', GITHUB_URL, 0x37474f);
     this.makeFooter(width, height);
 
     void getGameAudio().unlock().then(() => getGameAudio().startMenuBgm());
@@ -144,6 +155,9 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
     this.modeToggleBg.on('pointerdown', () => {
       this.matchMode = this.matchMode === 'classic' ? 'mega' : 'classic';
+      if (this.scoreToWin === defaultScoreToWin(this.matchMode === 'classic' ? 'mega' : 'classic')) {
+        this.scoreToWin = defaultScoreToWin(this.matchMode);
+      }
       this.refreshAiUi();
     });
   }
@@ -162,6 +176,23 @@ export class MenuScene extends Phaser.Scene {
     this.rosterBg.on('pointerdown', () => {
       if (this.matchMode !== 'mega') return;
       this.rosterSize = this.rosterSize === 8 ? 6 : 8;
+      this.refreshAiUi();
+    });
+  }
+
+  private makeScoreToggle(x: number, y: number): void {
+    this.scoreBg = this.add
+      .rectangle(x, y, 300, 40, 0x5e35b1, 1)
+      .setInteractive({ useHandCursor: true });
+    this.scoreLabel = this.add
+      .text(x, y, '', {
+        fontFamily: 'Segoe UI, sans-serif',
+        fontSize: '17px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5);
+    this.scoreBg.on('pointerdown', () => {
+      this.scoreToWin = nextScorePreset(this.scoreToWin, 1);
       this.refreshAiUi();
     });
   }
@@ -191,6 +222,7 @@ export class MenuScene extends Phaser.Scene {
         fillBots: true,
         matchMode: this.matchMode,
         rosterSize: this.matchMode === 'mega' ? this.rosterSize : 4,
+        scoreToWin: this.scoreToWin,
       });
     });
   }
@@ -202,19 +234,21 @@ export class MenuScene extends Phaser.Scene {
     this.aiToggleLabel?.setText(on ? 'AI 凑满人数：开' : 'AI 凑满人数：关');
     this.modeToggleBg?.setFillStyle(mega ? 0x6a1b9a : 0x37474f);
     this.modeToggleLabel?.setText(
-      mega ? '模式：超多人（红蓝对阵 · 先到 10）' : '模式：经典（混战 · 先到 5）',
+      mega ? '模式：超多人（红蓝对阵）' : '模式：经典（混战）',
     );
     this.rosterBg?.setFillStyle(mega ? 0x00838f : 0x455a64);
     this.rosterBg?.setAlpha(mega ? 1 : 0.45);
     this.rosterLabel?.setText(
       mega ? `超多人席位：${this.rosterSize}（点切 6/8）` : '席位：经典 4 人',
     );
+    this.scoreBg?.setFillStyle(0x5e35b1);
+    this.scoreLabel?.setText(`胜利积分：${this.scoreToWin}（点击切换）`);
     this.soloBtnBg?.setFillStyle(0x2f6fed);
     this.soloBtnLabel?.setAlpha(1);
     this.tipText?.setText(
       mega
-        ? '超多人：两队对打，灭掉对面全员得 1 局，先到 10；越往后地图越大。T加速 Z冰冻 W闪现 E电磁 A空袭'
-        : '经典 4 人混战。激光是瞬时光束。新技能：T加速 / Z冰冻 / W闪现 / E电磁脉冲 / A空袭',
+        ? `超多人：两队对打，灭掉对面全员得 1 局，先到 ${this.scoreToWin} 胜；越往后地图越大。T加速 Z冰冻 W闪现 E电磁 A空袭`
+        : `经典 4 人混战，先到 ${this.scoreToWin} 分获胜。激光是瞬时光束。T加速 / Z冰冻 / W闪现 / E电磁 / A空袭`,
     );
   }
 

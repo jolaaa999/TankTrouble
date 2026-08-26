@@ -4,6 +4,7 @@ import {
   GAME,
   GameSim,
   MEGA_MATCH,
+  clampScoreToWin,
   generateMaze,
   type InputMessage,
   type MatchMode,
@@ -34,6 +35,7 @@ export type GameSceneData =
       fillBots?: boolean;
       matchMode?: MatchMode;
       rosterSize?: number;
+      scoreToWin?: number;
       customMaze?: CustomMazeLayout;
     }
   | { mode: 'online'; room: Room; sessionId: string };
@@ -147,7 +149,11 @@ export class GameScene extends Phaser.Scene {
         : 4;
     this.customMaze = data.mode === 'local' ? data.customMaze : undefined;
     this.scoreToWin =
-      this.matchMode === 'mega' ? MEGA_MATCH.scoreToWin : CLASSIC_MATCH.scoreToWin;
+      data.mode === 'local'
+        ? clampScoreToWin(data.scoreToWin, this.matchMode)
+        : this.matchMode === 'mega'
+          ? MEGA_MATCH.scoreToWin
+          : CLASSIC_MATCH.scoreToWin;
     this.matchOver = false;
     this.seq = 0;
     this.room = data.mode === 'online' ? data.room : null;
@@ -218,11 +224,11 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'local') {
       const seed = (Math.random() * 1e9) | 0;
       const preset = this.matchMode === 'mega' ? MEGA_MATCH : CLASSIC_MATCH;
-      this.scoreToWin = preset.scoreToWin;
       this.sim = new GameSim(seed, this.withBots ? ['p1'] : ['p1', 'p2'], {
         fillBots: this.fillBots,
         match: {
           ...preset,
+          scoreToWin: this.scoreToWin,
           maxPlayers: this.rosterSize,
           fillWithBots: this.fillBots,
           scalingMaps: this.customMaze ? false : preset.scalingMaps,
@@ -345,6 +351,7 @@ export class GameScene extends Phaser.Scene {
       fillBots: this.fillBots,
       matchMode: this.matchMode,
       rosterSize: this.rosterSize,
+      scoreToWin: this.scoreToWin,
       customMaze: this.customMaze,
     };
   }

@@ -18,6 +18,7 @@ type RoomListEntry = {
   playerCount: number;
   rosterSize: number;
   fillWithBots: boolean;
+  scoreToWin: number;
 };
 
 const app = express();
@@ -49,6 +50,8 @@ app.get('/rooms', async (_req, res) => {
           playerCount,
           rosterSize,
           fillWithBots: Boolean(meta.fillWithBots),
+          scoreToWin:
+            typeof meta.scoreToWin === 'number' ? meta.scoreToWin : meta.mode === 'mega' ? 10 : 5,
         } satisfies RoomListEntry;
       })
       .filter((r) => r.roomCode && r.phase === 'waiting')

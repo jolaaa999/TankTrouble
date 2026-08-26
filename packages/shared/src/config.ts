@@ -1,4 +1,4 @@
-export const VERSION = '0.3.11';
+export const VERSION = '0.3.12';
 
 export const GAME = {
   tickHz: 60,
@@ -40,6 +40,9 @@ export const GAME = {
   fillWithBots: false,
   scoreToWin: 5,
   megaScoreToWin: 10,
+  /** Allowed custom win score range when creating a room. */
+  scoreToWinMin: 1,
+  scoreToWinMax: 50,
   intermissionSec: 2.2,
   pickupSpawnIntervalSec: 7,
   pickupRadius: 14,
@@ -147,4 +150,30 @@ export function mazeSizeForRound(roundIndex: number, scaling: boolean): {
     cols: Math.min(GAME.megaMazeMaxCols, GAME.mazeCols + Math.min(4, t)),
     rows: Math.min(GAME.megaMazeMaxRows, GAME.mazeRows + Math.min(3, Math.floor(t * 0.75))),
   };
+}
+
+/** Presets cycled in create-room UI. */
+export const SCORE_TO_WIN_PRESETS = [3, 5, 7, 10, 15, 20, 30] as const;
+
+export function defaultScoreToWin(mode: MatchMode = 'classic'): number {
+  return mode === 'mega' ? GAME.megaScoreToWin : GAME.scoreToWin;
+}
+
+export function clampScoreToWin(score: unknown, mode: MatchMode = 'classic'): number {
+  const fallback = defaultScoreToWin(mode);
+  const n = typeof score === 'number' ? score : Number(score);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(GAME.scoreToWinMin, Math.min(GAME.scoreToWinMax, Math.round(n)));
+}
+
+export function nextScorePreset(current: number, dir: 1 | -1 = 1): number {
+  const presets = SCORE_TO_WIN_PRESETS;
+  const clamped = clampScoreToWin(current);
+  let idx = presets.indexOf(clamped as (typeof presets)[number]);
+  if (idx < 0) {
+    idx = presets.findIndex((p) => p >= clamped);
+    if (idx < 0) idx = presets.length - 1;
+  }
+  idx = (idx + dir + presets.length) % presets.length;
+  return presets[idx]!;
 }

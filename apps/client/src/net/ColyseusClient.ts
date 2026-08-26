@@ -66,6 +66,7 @@ export type BattleRoomInfo = {
   playerCount: number;
   rosterSize: number;
   fillWithBots: boolean;
+  scoreToWin: number;
 };
 
 let pendingLobbyRoom: Room | null = null;
@@ -127,6 +128,7 @@ export async function createBattleRoom(opts?: {
   fillWithBots?: boolean;
   mode?: 'classic' | 'mega';
   rosterSize?: number;
+  scoreToWin?: number;
 }): Promise<Room> {
   const endpoint = getColyseusUrl();
   return withRetry('create', async () => {
@@ -137,6 +139,7 @@ export async function createBattleRoom(opts?: {
       fillWithBots: opts?.fillWithBots ?? false,
       mode: opts?.mode ?? 'classic',
       rosterSize: opts?.rosterSize ?? 4,
+      scoreToWin: opts?.scoreToWin,
     });
   });
 }

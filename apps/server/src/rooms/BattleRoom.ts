@@ -4,6 +4,7 @@ import {
   GAME,
   GameSim,
   MEGA_MATCH,
+  clampScoreToWin,
   sanitizeChatText,
   type InputMessage,
   type MatchMode,
@@ -44,13 +45,13 @@ export class BattleRoom extends Room<BattleState> {
     fillWithBots?: boolean;
     mode?: MatchMode;
     rosterSize?: number;
+    scoreToWin?: number;
   }): void {
     this.setState(new BattleState());
     this.state.roomCode = (options.roomCode ?? randomCode()).toUpperCase();
     this.state.phase = 'waiting';
     this.state.fillWithBots = options.fillWithBots ?? GAME.fillWithBots;
     this.state.mode = options.mode === 'mega' ? 'mega' : 'classic';
-    const preset = this.state.mode === 'mega' ? MEGA_MATCH : CLASSIC_MATCH;
     const roster =
       this.state.mode === 'mega'
         ? options.rosterSize === 6
@@ -58,7 +59,10 @@ export class BattleRoom extends Room<BattleState> {
           : 8
         : CLASSIC_MATCH.maxPlayers;
     this.state.rosterSize = roster;
-    this.state.scoreToWin = preset.scoreToWin;
+    this.state.scoreToWin = clampScoreToWin(
+      options.scoreToWin,
+      this.state.mode === 'mega' ? 'mega' : 'classic',
+    );
     // Cap room size to roster so joiners get a clear "full" instead of hanging
     this.maxClients = roster;
     this.setMetadata({ roomCode: this.state.roomCode, mode: this.state.mode });
@@ -91,6 +95,15 @@ export class BattleRoom extends Room<BattleState> {
       this.maxClients = size;
       this.syncMetadata();
       this.tryStart();
+    });
+
+    this.onMessage('setScoreToWin', (_client, message: { score?: number }) => {
+      if (this.state.phase !== 'waiting') return;
+      this.state.scoreToWin = clampScoreToWin(
+        message?.score,
+        this.state.mode === 'mega' ? 'mega' : 'classic',
+      );
+      this.syncMetadata();
     });
 
     this.onMessage('input', (client, message: InputMessage) => {
@@ -238,6 +251,7 @@ export class BattleRoom extends Room<BattleState> {
       playerCount: this.state.players.size,
       rosterSize: this.state.rosterSize,
       fillWithBots: this.state.fillWithBots,
+      scoreToWin: this.state.scoreToWin,
     });
   }
 
@@ -266,6 +280,7 @@ export class BattleRoom extends Room<BattleState> {
       fillBots: this.state.fillWithBots,
       match: {
         ...preset,
+        scoreToWin: this.state.scoreToWin,
         maxPlayers: this.state.rosterSize,
         fillWithBots: this.state.fillWithBots,
       },

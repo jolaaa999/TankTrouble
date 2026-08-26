@@ -7,7 +7,7 @@ import {
   pingServer,
   takeLobbyRoom,
 } from '../net/ColyseusClient';
-import type { MatchMode } from '@tanktrouble/shared';
+import { nextScorePreset, type MatchMode } from '@tanktrouble/shared';
 import type { Room } from 'colyseus.js';
 
 type LobbyData = {
@@ -15,6 +15,7 @@ type LobbyData = {
   fillWithBots?: boolean;
   mode?: MatchMode;
   rosterSize?: number;
+  scoreToWin?: number;
 };
 
 export class LobbyScene extends Phaser.Scene {
@@ -22,6 +23,7 @@ export class LobbyScene extends Phaser.Scene {
   private initialFillWithBots = false;
   private initialMode: MatchMode = 'classic';
   private initialRoster = 4;
+  private initialScoreToWin?: number;
   private room: Room | null = null;
   private infoText!: Phaser.GameObjects.Text;
   private codeInput = '';
@@ -30,6 +32,8 @@ export class LobbyScene extends Phaser.Scene {
   private aiBtnLabel: Phaser.GameObjects.Text | null = null;
   private rosterBtnBg: Phaser.GameObjects.Rectangle | null = null;
   private rosterBtnLabel: Phaser.GameObjects.Text | null = null;
+  private scoreBtnBg: Phaser.GameObjects.Rectangle | null = null;
+  private scoreBtnLabel: Phaser.GameObjects.Text | null = null;
 
   constructor() {
     super('lobby');
@@ -40,6 +44,7 @@ export class LobbyScene extends Phaser.Scene {
     this.initialFillWithBots = data.fillWithBots ?? false;
     this.initialMode = data.mode ?? 'classic';
     this.initialRoster = data.rosterSize ?? (this.initialMode === 'mega' ? 8 : 4);
+    this.initialScoreToWin = data.scoreToWin;
     this.room = null;
     this.codeInput = '';
     this.started = false;
@@ -47,6 +52,8 @@ export class LobbyScene extends Phaser.Scene {
     this.aiBtnLabel = null;
     this.rosterBtnBg = null;
     this.rosterBtnLabel = null;
+    this.scoreBtnBg = null;
+    this.scoreBtnLabel = null;
   }
 
   async create(): Promise<void> {
@@ -107,6 +114,7 @@ export class LobbyScene extends Phaser.Scene {
           fillWithBots: this.initialFillWithBots,
           mode: this.initialMode,
           rosterSize: this.initialRoster,
+          scoreToWin: this.initialScoreToWin,
         });
         this.bindRoom(this.room);
       } catch (err) {
@@ -180,6 +188,25 @@ export class LobbyScene extends Phaser.Scene {
       const next = state.rosterSize === 6 ? 8 : 6;
       this.room?.send('setRosterSize', { size: next });
     });
+
+    this.scoreBtnBg = this.add
+      .rectangle(width / 2, 542, 300, 40, 0x5e35b1, 1)
+      .setInteractive({ useHandCursor: true })
+      .setDepth(10);
+    this.scoreBtnLabel = this.add
+      .text(width / 2, 542, '', {
+        fontFamily: 'Segoe UI, sans-serif',
+        fontSize: '16px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5)
+      .setDepth(11);
+    this.scoreBtnBg.on('pointerdown', () => {
+      const state = this.room?.state as { scoreToWin?: number } | undefined;
+      if (!state?.scoreToWin) return;
+      const next = nextScorePreset(state.scoreToWin, 1);
+      this.room?.send('setScoreToWin', { score: next });
+    });
   }
 
   private bindRoom(room: Room): void {
@@ -230,7 +257,7 @@ export class LobbyScene extends Phaser.Scene {
         humans < minNeeded
           ? `还需至少 ${minNeeded - humans} 名真人才能开战`
           : '人数已够，全员准备即可开战',
-        '按 R 准备 · 点按钮切换 AI' + (mega ? ' / 席位' : ''),
+        '按 R 准备 · 点按钮切换 AI' + (mega ? ' / 席位' : '') + ' / 胜利分',
       );
       this.infoText.setText(lines.join('\n'));
 
@@ -239,6 +266,7 @@ export class LobbyScene extends Phaser.Scene {
       this.rosterBtnBg?.setVisible(mega);
       this.rosterBtnLabel?.setVisible(mega);
       this.rosterBtnLabel?.setText(`席位 ${roster}（点切 6/8）`);
+      this.scoreBtnLabel?.setText(`胜利积分 ${state.scoreToWin}（点击切换）`);
     };
 
     room.onError((code, message) => {
