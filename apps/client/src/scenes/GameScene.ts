@@ -16,9 +16,8 @@ import {
   type ChatChannel,
   type ChatMessagePayload,
   traceBouncingBeam,
-  stepTankMotion,
-  type TankMotionState,
 } from '@tanktrouble/shared';
+import { OnlineSelfPredictor } from '../net/onlinePrediction';
 import { MazeView } from '../render/MazeView';
 import { TankView } from '../render/TankView';
 import { BulletView } from '../render/BulletView';
@@ -112,15 +111,7 @@ export class GameScene extends Phaser.Scene {
   private onlineRows = -1;
   private onlineWalls: { x1: number; y1: number; x2: number; y2: number; kind: 'h' | 'v' }[] = [];
   private onlineCache: OnlineStateCache | null = null;
-  /** Continuous local prediction for own tank (advances each frame). */
-  private predictedSelf: TankMotionState | null = null;
-  /** Sent inputs for replay after each server snapshot. */
-  private inputBuffer: InputMessage[] = [];
-  private readonly maxInputBuffer = 120;
-  /** Skip one predict step after reconcile to avoid double-simulating the same input. */
-  private skipPredictStep = false;
-  private lastReconciledInputSeq = -1;
-  private predictAcc = 0;
+  private readonly onlinePredictor = new OnlineSelfPredictor();
   private statusText: Phaser.GameObjects.Text | null = null;
   private scoreText: Phaser.GameObjects.Text | null = null;
   private keys!: {
@@ -129,8 +120,6 @@ export class GameScene extends Phaser.Scene {
   };
   private timeSec = 0;
   private simAcc = 0;
-  private lastInputSentAt = 0;
-  private lastInputKey = '';
   private lastScoreKey = '';
   private lastSnapSeed = -1;
   private readonly audio = getGameAudio();
@@ -170,14 +159,8 @@ export class GameScene extends Phaser.Scene {
     this.onlineRows = -1;
     this.onlineWalls = [];
     this.onlineCache = null;
-    this.predictedSelf = null;
-    this.inputBuffer = [];
-    this.skipPredictStep = false;
-    this.lastReconciledInputSeq = -1;
-    this.predictAcc = 0;
+    this.onlinePredictor.reset();
     this.simAcc = 0;
-    this.lastInputSentAt = 0;
-    this.lastInputKey = '';
     this.lastScoreKey = '';
     this.lastSnapSeed = -1;
     this.audio.resetBattleState();
@@ -476,10 +459,7 @@ export class GameScene extends Phaser.Scene {
         this.onlineWalls = maze.walls;
         this.applyMazeLayout(maze.cols, maze.rows);
         this.mazeView?.draw(maze, this.offsetX, this.offsetY);
-        this.predictedSelf = null;
-        this.inputBuffer = [];
-        this.lastReconciledInputSeq = -1;
-        this.predictAcc = 0;
+        this.onlinePredictor.reset();
       }
 
       if (this.matchMode === 'mega') {
@@ -564,11 +544,15 @@ export class GameScene extends Phaser.Scene {
 
       const me = tanks.find((t) => t.id === this.sessionId);
       const lastInputSeq = state.players?.get(this.sessionId)?.lastInputSeq ?? 0;
-      if (me) this.reconcileWithInputReplay(me, lastInputSeq, bullets);
-      else {
-        this.predictedSelf = null;
-        this.inputBuffer = [];
-        this.lastReconciledInputSeq = -1;
+      if (me) {
+        this.onlinePredictor.reconcile(
+          me,
+          lastInputSeq,
+          this.onlineWalls,
+          this.selfSteeringLocked(me.weapon, bullets),
+        );
+      } else {
+        this.onlinePredictor.reset();
       }
 
       const tankList: { id: string; x: number; y: number; alive: boolean }[] = tanks.map((t) => ({
@@ -618,115 +602,41 @@ export class GameScene extends Phaser.Scene {
     ingestOnlineState();
   }
 
+  private selfSteeringLocked(
+    weapon: string,
+    bullets: OnlineStateCache['bullets'],
+  ): boolean {
+    const homing = bullets.some(
+      (b) => b.ownerId === this.sessionId && b.kind === 'homing',
+    );
+    return Boolean(homing && weapon === 'homing');
+  }
+
+  private advanceOnline(frameDt: number): void {
+    if (!this.room || this.matchOver || !this.onlineCache) return;
+    const me = this.onlineCache.tanks.find((t) => t.id === this.sessionId);
+    if (!me?.alive) return;
+
+    const steeringLocked = this.selfSteeringLocked(
+      me.weapon,
+      this.onlineCache.bullets,
+    );
+    this.onlinePredictor.advance(
+      frameDt,
+      () => this.readKeys(this.keys.p1),
+      this.onlineWalls,
+      steeringLocked,
+      (msg) => this.room!.send('input', msg),
+      true,
+    );
+  }
+
   private onlineInterpAlpha(): number {
     if (!this.onlineCache) return 1;
     const tickMs = 1000 / GAME.tickHz;
-    // Stay in [0,1] — do not extrapolate remotes past the latest snap (causes hitching)
-    return Math.min(1, (performance.now() - this.onlineCache.receivedAt) / tickMs);
-  }
-
-  /**
-   * Authoritative server pose + replay unacknowledged inputs — keeps prediction aligned for firing/pickups.
-   * Full reset only when lastInputSeq advances (avoids jitter on unrelated state patches).
-   */
-  private reconcileWithInputReplay(
-    serverMe: OnlineTankSnap,
-    lastInputSeq: number,
-    bullets: OnlineStateCache['bullets'],
-  ): void {
-    if (!serverMe.alive) {
-      this.predictedSelf = {
-        x: serverMe.x,
-        y: serverMe.y,
-        angle: serverMe.angle,
-        freezeTime: serverMe.freezeTime,
-        turboTime: serverMe.turboTime,
-        turboPlus: serverMe.turboPlus,
-      };
-      this.inputBuffer = [];
-      this.lastReconciledInputSeq = -1;
-      return;
-    }
-
-    const needsFull =
-      !this.predictedSelf ||
-      lastInputSeq !== this.lastReconciledInputSeq;
-
-    if (!needsFull) {
-      if (this.predictedSelf) {
-        this.predictedSelf.freezeTime = serverMe.freezeTime;
-        this.predictedSelf.turboTime = serverMe.turboTime;
-        this.predictedSelf.turboPlus = serverMe.turboPlus;
-      }
-      return;
-    }
-
-    this.lastReconciledInputSeq = lastInputSeq;
-    this.predictedSelf = {
-      x: serverMe.x,
-      y: serverMe.y,
-      angle: serverMe.angle,
-      freezeTime: serverMe.freezeTime,
-      turboTime: serverMe.turboTime,
-      turboPlus: serverMe.turboPlus,
-    };
-
-    if (this.onlineWalls.length === 0) return;
-
-    const pending = this.inputBuffer.filter((i) => i.seq > lastInputSeq);
-    const tickMs = 1000 / GAME.tickHz;
-    const snapshotAge = this.onlineCache
-      ? Math.max(0, performance.now() - this.onlineCache.receivedAt)
-      : 0;
-    const maxReplay = Math.min(12, Math.ceil(snapshotAge / tickMs) + 2);
-    const steeringMissile = bullets.some(
-      (b) => b.ownerId === this.sessionId && b.kind === 'homing',
-    );
-    const steeringLocked = Boolean(steeringMissile && serverMe.weapon === 'homing');
-
-    for (let i = 0; i < Math.min(pending.length, maxReplay); i++) {
-      const input = pending[i]!;
-      if (this.predictedSelf.freezeTime > 0) break;
-      stepTankMotion(this.predictedSelf, input, this.onlineWalls, this.fixedDt, steeringLocked);
-    }
-
-    this.inputBuffer = this.inputBuffer.filter((i) => i.seq > lastInputSeq);
-    this.skipPredictStep = true;
-    this.predictAcc = 0;
-  }
-
-  private pushInputBuffer(msg: InputMessage): void {
-    this.inputBuffer.push(msg);
-    if (this.inputBuffer.length > this.maxInputBuffer) {
-      this.inputBuffer.splice(0, this.inputBuffer.length - this.maxInputBuffer);
-    }
-  }
-
-  private stepPredictedSelf(frameDt: number): void {
-    if (this.skipPredictStep) {
-      this.skipPredictStep = false;
-      return;
-    }
-    if (!this.predictedSelf || !this.onlineCache || this.matchOver) return;
-    const me = this.onlineCache.tanks.find((t) => t.id === this.sessionId);
-    if (!me?.alive || this.onlineWalls.length === 0) return;
-
-    this.predictedSelf.freezeTime = me.freezeTime;
-    this.predictedSelf.turboTime = me.turboTime;
-    this.predictedSelf.turboPlus = me.turboPlus;
-    if (me.freezeTime > 0) return;
-
-    this.predictAcc += Math.min(0.05, frameDt);
-    if (this.predictAcc > 0.1) this.predictAcc = 0.1;
-    const input = this.readKeys(this.keys.p1);
-    const steeringMissile = this.onlineCache.bullets.some(
-      (b) => b.ownerId === this.sessionId && b.kind === 'homing',
-    );
-    const steeringLocked = Boolean(steeringMissile && me.weapon === 'homing');
-    while (this.predictAcc >= this.fixedDt) {
-      stepTankMotion(this.predictedSelf, input, this.onlineWalls, this.fixedDt, steeringLocked);
-      this.predictAcc -= this.fixedDt;
-    }
+    const delay = Math.min(80, this.onlinePredictor.rttMs * 0.35);
+    const elapsed = performance.now() - this.onlineCache.receivedAt + delay;
+    return Math.min(1, elapsed / tickMs);
   }
 
   private lerpAngle(from: number, to: number, t: number): number {
@@ -741,13 +651,11 @@ export class GameScene extends Phaser.Scene {
     if (!snap) return [];
     const alpha = this.onlineInterpAlpha();
     return snap.tanks.map((t) => {
-      if (t.id === this.sessionId && this.predictedSelf) {
-        return {
-          ...t,
-          x: this.predictedSelf.x,
-          y: this.predictedSelf.y,
-          angle: this.predictedSelf.angle,
-        };
+      if (t.id === this.sessionId) {
+        const pose = this.onlinePredictor.getDisplayPose();
+        if (pose) {
+          return { ...t, x: pose.x, y: pose.y, angle: pose.angle };
+        }
       }
       const prev = snap.prevTanks.get(t.id);
       if (!prev) return t;
@@ -802,8 +710,7 @@ export class GameScene extends Phaser.Scene {
       this.updateLocal(Math.min(0.05, dtMs / 1000));
     } else {
       const frameDt = Math.min(0.05, dtMs / 1000);
-      this.updateOnlineInput();
-      this.stepPredictedSelf(frameDt);
+      this.advanceOnline(frameDt);
       this.renderOnlineFrame();
     }
     this.updateChatBubblePositions();
@@ -895,22 +802,6 @@ export class GameScene extends Phaser.Scene {
         restart: this.localRestartData(),
       });
     }
-  }
-
-  private updateOnlineInput(): void {
-    if (!this.room || this.matchOver) return;
-    const keys = this.readKeys(this.keys.p1);
-    const key = `${keys.left ? 1 : 0}${keys.right ? 1 : 0}${keys.forward ? 1 : 0}${keys.back ? 1 : 0}${keys.fire ? 1 : 0}`;
-    const now = performance.now();
-    const active = keys.left || keys.right || keys.forward || keys.back || keys.fire;
-    const minGap = active ? 0 : 100;
-    if (key === this.lastInputKey && now - this.lastInputSentAt < minGap) return;
-    this.lastInputKey = key;
-    this.lastInputSentAt = now;
-    this.seq += 1;
-    const msg: InputMessage = { seq: this.seq, ...keys };
-    this.room.send('input', msg);
-    this.pushInputBuffer(msg);
   }
 
   private renderScores(

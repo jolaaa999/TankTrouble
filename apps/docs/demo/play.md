@@ -1,6 +1,6 @@
 # Tank Trouble 游戏演示
 
-<span class="version-pill">V0.3.16</span> · 当前线上版本
+<span class="version-pill">V0.3.17</span> · 当前线上版本
 
 ## 在线试玩
 
